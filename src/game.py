@@ -4,20 +4,23 @@ import time
 from datetime import datetime
 import numpy as np
 
-TIME_CONST = 0.25  # factor for delaying the simulation, useful for debugging purposes
+ACTION_SPACE = ('up', 'down', 'left', 'right', 'noop', 'bomb')
+TIME_CONST = 0.001 # factor for delaying the simulation, useful for debugging purposes
 print_lock = threading.Lock()
 players_lock = threading.Lock()
 grid_lock = threading.Lock()
 alive_players = list()
 dead_players = list()
 
-bomb_lock = threading.Lock()
+global_bomb_lock = threading.Lock()
 global_bombs = set()
 
 
 def move_cursor(x, y):
     sys.stdout.write(f"\033[{y};{x}H")
 
+def get_distance(x0, y0, x1, y1):
+    return abs(x0 - x1) + abs(y0 - y1)
 
 class Border:
     def __format__(self, format_spec):
@@ -85,7 +88,7 @@ s = SpeedBoost()
 
 def get_start_grid():
     g_tem = [[[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]],
-            [[b], [e], [t], [w], [w], [w], [w], [e], [e], [b]],
+            [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
             [[b], [e], [w], [w], [p], [w], [w], [w], [e], [b]],
             [[b], [w], [w], [w], [w], [s], [w], [w], [w], [b]],
             [[b], [w], [w], [w], [w], [w], [w], [w], [w], [b]],
@@ -109,6 +112,7 @@ class Bomb:
     y: int
     timer: threading.Timer
     time_created = None
+    timeout = float('inf')
 
     def __init__(self, timeout: float, strength: int, owner, x, y):
         self.owner = owner
@@ -120,19 +124,27 @@ class Bomb:
             self.owner.bombs -= 1
             self.timeout = timeout*TIME_CONST
             self.timer = threading.Timer(self.timeout, self.explode_bomb)
+            global_bomb_lock.acquire()
             self.timer.start()
+            self.time_created = datetime.now()
+            global_bombs.add(self)
+            global_bomb_lock.release()
         else:
             pass
-        bomb_lock.acquire()
-        global_bombs.add(self)
-        bomb_lock.release()
-        self.time_created = datetime.now()
 
-    def explode_bomb(self):
+
+    def explode_bomb(self, caller=None):
         y = self.y
         x = self.x
-        if isinstance(grid[y][x][-1], Bomb):
-            grid[y][x].pop()
+        grid_lock.acquire()
+        for l in range(len(grid[y][x])):
+            if grid[y][x][l] == self:
+                grid[y][x].remove(self)
+                break
+        grid_lock.release()
+
+        # if isinstance(grid[y][x][-1], Bomb):
+        #     grid[y][x].pop()
         for ra in [range(y, y + self.strength),
                    range(y, y - self.strength - 1, -1)]:
             for elem in ra:
@@ -150,13 +162,10 @@ class Bomb:
                     case Player():
                         self.owner.score += 50
                         poi.terminate()
-                        players_lock.acquire()
-                        alive_players.remove(poi)
-                        dead_players.append(poi)
-                        players_lock.release()
                     case Bomb():
-                        poi.explode_bomb()
-                        poi.timer.cancel()
+                        if poi is not caller:
+                            poi.explode_bomb(self)
+                            poi.timer.cancel()
                     case _:
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
@@ -176,15 +185,15 @@ class Bomb:
                     case Border():
                         break
                     case Player():
-                        self.owner.score += 50
+                        if self.owner is poi:
+                            self.owner.score -= 100
+                        else:
+                            self.owner.score += 50
                         poi.terminate()
-                        players_lock.acquire()
-                        alive_players.remove(poi)
-                        dead_players.append(poi)
-                        players_lock.release()
                     case Bomb():
-                        poi.explode_bomb()
-                        poi.timer.cancel()
+                        if poi is not caller:
+                            poi.explode_bomb(self)
+                            poi.timer.cancel()
                     case _:
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
@@ -192,18 +201,18 @@ class Bomb:
         self.owner.bomb_lock.acquire()
         self.owner.bombs += 1
         self.owner.bomb_lock.release()
-        bomb_lock.acquire()
-        global_bombs.remove(self)
-        bomb_lock.release()
+        global_bomb_lock.acquire()
+        if self in global_bombs:
+            global_bombs.remove(self)
+        global_bomb_lock.release()
         print_grid()
 
-        if len(alive_players) < 2:
-            print_final()
-            exit(0)
+        # if len(alive_players) < 2:
+        #     print_final()
+        #     exit(0)
 
     def get_time_left_ms(self):
         return self.timeout - (self.time_created - datetime.now()).total_seconds()*1000
-
 
     def __format__(self, format_spec):
         if format_spec == '2':
@@ -213,7 +222,7 @@ class Bomb:
 
 
 class Player:
-    _position: [int, int]
+    _position: [0, 0]
     score: float = 0.0
     _max_bombs: int
     bombs: int
@@ -224,7 +233,6 @@ class Player:
     global grid
     bomb_lock = threading.Lock()
 
-    # getters
     def get_position(self):
         return self._position
 
@@ -249,6 +257,8 @@ class Player:
                 self._position = [len(grid) - 2, 1]
             case 3:
                 self._position = [len(grid) - 2, len(grid) - 2]
+            case _:
+                assert False, f'Invalid player number{len(alive_players)}'
         alive_players.append(self)
         players_lock.release()
         self.bomb_lock.acquire()
@@ -265,8 +275,13 @@ class Player:
     Terminate this player. Used by the bombs.
     """
     def terminate(self):
+        #print(f'player{self:2} terminated')
         self.dead = True
         self.score -= 100
+        players_lock.acquire()
+        alive_players.remove(self)
+        dead_players.append(self)
+        players_lock.release()
         grid_lock.acquire()
         grid[self._position[0]][self._position[1]].pop()
         grid_lock.release()
@@ -278,12 +293,10 @@ class Player:
             case Empty():
                 return True
             case PowerBoost():
-                print('power boost acquired')
                 self._bomb_strength += loc.pop().strength
                 loc.append(e)
                 return True
             case BombBoost():
-                print('bomb added')
                 self._max_bombs += 1
                 self.bombs += 1
                 loc.pop()
@@ -293,7 +306,6 @@ class Player:
                 self.speed /= 1.5
                 loc.pop()
                 loc.append(e)
-                print('speed increased')
                 return True
         return False
 
@@ -319,43 +331,42 @@ class Player:
             return
         y = self._position[0]
         x = self._position[1]
-        if type(grid[y][x][-1]) is Bomb:
-            tmp = grid[y][x].pop()
-            grid[y][x].pop()
-            grid[y][x].append(tmp)
+        grid_lock.acquire()
+        for l in range(len(grid[y][x])):
+            if grid[y][x][l] == self:
+                grid[y][x].remove(self)
+                break
         else:
-            grid[y][x].pop()
+            grid_lock.release()
+            return
 
+        grid_lock.release()
         match direction:
             case 'noop':
                 grid[y][x].append(self)
                 retval = True
             case 'up':
-                if self.process_loc(grid[y-1][x]):  # type(grid[y-1][x][-1]) in [Empty]:
+                if self.process_loc(grid[y-1][x]):
                     self._position[0] -= 1
                     grid[y - 1][x].append(self)
-                    self.score += 1
                     retval = True
                 else: grid[y][x].append(self)
             case 'down':
-                if self.process_loc(grid[y + 1][x]):  # type(grid[y + 1][x][-1]) in [Empty]:
+                if self.process_loc(grid[y + 1][x]):
                     self._position[0] += 1
                     grid[y + 1][x].append(self)
-                    self.score += 1
                     retval = True
                 else: grid[y][x].append(self)
             case 'left':
-                if self.process_loc(grid[y][x-1]):  # type(grid[y][x-1][0]) in [Empty]:
+                if self.process_loc(grid[y][x-1]):
                     self._position[1] -= 1
                     grid[y][x-1].append(self)
-                    self.score += 1
                     retval = True
                 else: grid[y][x].append(self)
             case 'right':
-                if self.process_loc(grid[y][x+1]):  # type(grid[y][x+1][0]) in [Empty]:
+                if self.process_loc(grid[y][x+1]):
                     self._position[1] += 1
                     grid[y][x+1].append(self)
-                    self.score += 1
                     retval = True
                 else: grid[y][x].append(self)
         time.sleep(self.speed*TIME_CONST)
@@ -417,13 +428,20 @@ def get_bombs():
     return  bomb_locations
 
 
+HEADLESS = False
 def print_grid():
+    if HEADLESS:
+        return
     print_lock.acquire()
     move_cursor(0, 2)
     grid_lock.acquire()
     for row in grid:
         for item in row:
-            print(f"{item[-1]:2}", end=" ")
+            try:
+
+                print(f"{item[-1]:2}", end=" ")
+            except IndexError:
+                ...
         print()
     print()
     print_lock.release()
