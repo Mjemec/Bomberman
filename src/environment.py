@@ -2,6 +2,7 @@ import time
 import game
 import threading
 import random
+import numpy as np
 
 
 class WalkerPlayer:
@@ -31,6 +32,36 @@ class WalkerPlayer:
         if self._thread is not None:
             self._stop_event.set()
             self._thread.join()
+
+
+class QLearnPlayer:
+    Q_table: np.array
+
+    def __init__(self, player):
+        self.Q_table = np.load('array.npy')
+        self.player = game.Player('QWalker')
+        self.env = QEnv(self.player)
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def _run(self):
+        done = False
+        while not self._stop_event.is_set() and not done:
+            current_state = self.env.get_state()
+            action = np.argmax(self.Q_table[current_state])
+            observation, reward, done, _ = self.env.step(action)
+
+    def start(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run)
+            self._thread.start()
+
+    def stop(self):
+        if self._thread is not None:
+            self._stop_event.set()
+            self._thread.join()
+
 
 
 class Environment:

@@ -47,7 +47,11 @@ for epoch in range(epochs):  # TODO: fix this
     p1 = game.Player('QL')
     env = QEnv(p1)
     walker = WalkerPlayer()
+    walker1 = WalkerPlayer()
+    walker2 = WalkerPlayer()
     walker.start()
+    walker1.start()
+    walker2.start()
 
     for _ in range(max_steps):
         current_state = env.get_state()
