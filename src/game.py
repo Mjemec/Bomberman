@@ -16,11 +16,22 @@ global_bomb_lock = threading.Lock()
 global_bombs = set()
 
 
+def is_in_range(x0, y0, x1, y1, rg) -> bool:
+    if x0 == x1:
+        return abs(y0-y1) <= rg
+    elif y0 == y1:
+        return abs(x0 - x1) <= rg
+    else:
+        return False
+
+
 def move_cursor(x, y):
     sys.stdout.write(f"\033[{y};{x}H")
 
+
 def get_distance(x0, y0, x1, y1):
     return abs(x0 - x1) + abs(y0 - y1)
+
 
 class Border:
     def __format__(self, format_spec):
@@ -131,7 +142,6 @@ class Bomb:
             global_bomb_lock.release()
         else:
             pass
-
 
     def explode_bomb(self, caller=None):
         y = self.y
@@ -376,7 +386,37 @@ class Player:
     def place_bomb(self):
         y = self._position[0]
         x = self._position[1]
+
         bomb = Bomb(3, self._bomb_strength, owner=self, x=x, y=y)
+
+        b_x = bomb.x
+        b_y = bomb.y
+        is_smart_by_player = False
+        is_smart_by_wall = False
+
+        for p in alive_players:
+            if p is self:
+                continue
+            p_pos = p.get_position()
+            p_x = p_pos[1]
+            p_y = p_pos[0]
+            if is_in_range(p_x, b_x, p_y, b_y, bomb.strength):
+                is_smart_by_player = True
+                break
+        if is_smart_by_player:
+            self.score += 10
+        else:
+            for neigh_block in [grid[b_y-1][b_x], grid[b_y+1][b_x],
+                           grid[b_y][b_x-1], grid[b_y][b_y+1]]:
+                if type(neigh_block) is Wall:
+                    is_smart_by_wall = True
+
+            if is_smart_by_wall:
+                self.score += 2
+
+        if not is_smart_by_player and not is_smart_by_wall:
+            self.score -= 5
+
         print_grid()
         
     def get_self_grid(self):
