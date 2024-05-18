@@ -31,7 +31,6 @@ else:
 timelast = datetime.datetime.now()
 last_score = 0
 best_score = -float('inf')
-best_matrix = None
 
 for epoch in range(epochs):  # TODO: fix this
     if epoch % 100 == 0:
@@ -72,7 +71,6 @@ for epoch in range(epochs):  # TODO: fix this
             last_score = p1.get_score()
             if last_score > best_score:
                 best_score = last_score
-                best_matre = Q_table.copy()
             env.reset()
             walker.stop()
             break
