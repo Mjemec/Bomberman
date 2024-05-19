@@ -5,7 +5,7 @@ from datetime import datetime
 import numpy as np
 
 ACTION_SPACE = ('up', 'down', 'left', 'right', 'noop', 'bomb')
-TIME_CONST = 0.001 # factor for delaying the simulation, useful for debugging purposes
+TIME_CONST = 0.001
 print_lock = threading.Lock()
 players_lock = threading.Lock()
 grid_lock = threading.Lock()
@@ -38,7 +38,6 @@ class Border:
         if format_spec == '2':
             return '\033[94m' + 'XX' + '\033[0m'
         else:
-            # Default behavior
             return str(self)[:int(format_spec)]
 
 
@@ -100,12 +99,12 @@ s = SpeedBoost()
 def get_start_grid():
     g_tem = [[[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]],
             [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
-            [[b], [e], [w], [w], [p], [w], [w], [w], [e], [b]],
+            [[b], [e], [e], [w], [t], [w], [w], [e], [e], [b]],
             [[b], [w], [w], [w], [w], [s], [w], [w], [w], [b]],
             [[b], [w], [w], [w], [w], [w], [w], [w], [w], [b]],
-            [[b], [w], [w], [s], [w], [w], [w], [p], [w], [b]],
-            [[b], [w], [w], [p], [w], [w], [w], [s], [w], [b]],
-            [[b], [e], [w], [w], [w], [w], [w], [w], [e], [b]],
+            [[b], [w], [w], [s], [w], [w], [w], [t], [w], [b]],
+            [[b], [w], [w], [t], [w], [w], [w], [s], [w], [b]],
+            [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
             [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
             [[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]]]
     return g_tem
@@ -156,7 +155,7 @@ class Bomb:
         # if isinstance(grid[y][x][-1], Bomb):
         #     grid[y][x].pop()
         for ra in [range(y, y + self.strength),
-                   range(y, y - self.strength - 1, -1)]:
+                   range(y, y - self.strength, -1)]:
             for elem in ra:
                 poi = grid[elem][x][-1]
                 match poi:
@@ -165,12 +164,13 @@ class Bomb:
                     case Wall():
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
-                        self.owner.score += 5
+                        self.owner.score += 10
                         break
                     case Border():
                         break
                     case Player():
-                        self.owner.score += 50
+                        if poi is not self.owner:
+                            self.owner.score += 100
                         poi.terminate()
                     case Bomb():
                         if poi is not caller:
@@ -181,24 +181,22 @@ class Bomb:
                         grid[elem][x].append(e)
 
         for ra in [range(x, x + self.strength),
-                   range(x, x - self.strength - 1, -1)]:
+                   range(x, x - self.strength, -1)]:
             for elem in ra:
                 poi = grid[y][elem][-1]
                 match poi:
                     case Empty():
                         continue
                     case Wall():
-                        self.owner.score += 5
+                        self.owner.score += 10
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
                         break
                     case Border():
                         break
                     case Player():
-                        if self.owner is poi:
-                            self.owner.score -= 100
-                        else:
-                            self.owner.score += 50
+                        if self.owner is not poi:
+                            self.owner.score += 100
                         poi.terminate()
                     case Bomb():
                         if poi is not caller:
@@ -217,12 +215,8 @@ class Bomb:
         global_bomb_lock.release()
         print_grid()
 
-        # if len(alive_players) < 2:
-        #     print_final()
-        #     exit(0)
-
     def get_time_left_ms(self):
-        return self.timeout - (self.time_created - datetime.now()).total_seconds()*1000
+        return self.timeout - (datetime.now() - self.time_created).total_seconds()*1000
 
     def __format__(self, format_spec):
         if format_spec == '2':
@@ -239,7 +233,7 @@ class Player:
     _bomb_strength: int = 2
     name: str
     dead: bool = False
-    speed = 0.5
+    speed = 0.75
     global grid
     bomb_lock = threading.Lock()
 
@@ -280,14 +274,13 @@ class Player:
         grid_lock.release()
         print_grid()
 
-
     """
     Terminate this player. Used by the bombs.
     """
     def terminate(self):
         #print(f'player{self:2} terminated')
         self.dead = True
-        self.score -= 100
+        self.score -= 200
         players_lock.acquire()
         alive_players.remove(self)
         dead_players.append(self)
@@ -354,6 +347,7 @@ class Player:
         match direction:
             case 'noop':
                 grid[y][x].append(self)
+                self.score -= 2
                 retval = True
             case 'up':
                 if self.process_loc(grid[y-1][x]):
@@ -386,36 +380,7 @@ class Player:
     def place_bomb(self):
         y = self._position[0]
         x = self._position[1]
-
         bomb = Bomb(3, self._bomb_strength, owner=self, x=x, y=y)
-
-        b_x = bomb.x
-        b_y = bomb.y
-        is_smart_by_player = False
-        is_smart_by_wall = False
-
-        for p in alive_players:
-            if p is self:
-                continue
-            p_pos = p.get_position()
-            p_x = p_pos[1]
-            p_y = p_pos[0]
-            if is_in_range(p_x, b_x, p_y, b_y, bomb.strength):
-                is_smart_by_player = True
-                break
-        if is_smart_by_player:
-            self.score += 10
-        else:
-            for neigh_block in [grid[b_y-1][b_x], grid[b_y+1][b_x],
-                           grid[b_y][b_x-1], grid[b_y][b_y+1]]:
-                if type(neigh_block) is Wall:
-                    is_smart_by_wall = True
-
-            if is_smart_by_wall:
-                self.score += 2
-
-        if not is_smart_by_player and not is_smart_by_wall:
-            self.score -= 5
 
         print_grid()
         
