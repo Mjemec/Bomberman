@@ -131,15 +131,17 @@ class Bomb:
         self.x = x
         self.y = y
         if type(grid[y][x][0]) is Empty and self.owner.bombs:
-            grid[y][x].append(self)
             self.owner.bombs -= 1
             self.timeout = timeout*TIME_CONST
             self.timer = threading.Timer(self.timeout, self.explode_bomb)
             global_bomb_lock.acquire()
-            self.timer.start()
             self.time_created = datetime.now()
             global_bombs.add(self)
             global_bomb_lock.release()
+            grid_lock.acquire()
+            grid[y][x].append(self)
+            grid_lock.release()
+            self.timer.start()
         else:
             pass
 
@@ -163,8 +165,10 @@ class Bomb:
                     case Empty():
                         continue
                     case Wall():
+                        grid_lock.acquire()
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
+                        grid_lock.release()
                         self.owner.score += 5
                         break
                     case Border():
@@ -177,8 +181,10 @@ class Bomb:
                             poi.explode_bomb(self)
                             poi.timer.cancel()
                     case _:
+                        grid_lock.acquire()
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
+                        grid_lock.release()
 
         for ra in [range(x, x + self.strength),
                    range(x, x - self.strength - 1, -1)]:
@@ -189,8 +195,10 @@ class Bomb:
                         continue
                     case Wall():
                         self.owner.score += 5
+                        grid_lock.acquire()
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
+                        grid_lock.release()
                         break
                     case Border():
                         break
@@ -205,8 +213,10 @@ class Bomb:
                             poi.explode_bomb(self)
                             poi.timer.cancel()
                     case _:
+                        grid_lock.acquire()
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
+                        grid_lock.release()
 
         self.owner.bomb_lock.acquire()
         self.owner.bombs += 1
@@ -222,7 +232,7 @@ class Bomb:
         #     exit(0)
 
     def get_time_left_ms(self):
-        return self.timeout - (self.time_created - datetime.now()).total_seconds()*1000
+        return self.timeout - (datetime.now() - self.time_created).total_seconds()*1000
 
     def __format__(self, format_spec):
         if format_spec == '2':
@@ -232,7 +242,7 @@ class Bomb:
 
 
 class Player:
-    _position: [0, 0]
+    _position = [0, 0]
     score: float = 0.0
     _max_bombs: int
     bombs: int
@@ -350,7 +360,6 @@ class Player:
             grid_lock.release()
             return
 
-        grid_lock.release()
         match direction:
             case 'noop':
                 grid[y][x].append(self)
@@ -379,6 +388,7 @@ class Player:
                     grid[y][x+1].append(self)
                     retval = True
                 else: grid[y][x].append(self)
+        grid_lock.release()
         time.sleep(self.speed*TIME_CONST)
         print_grid()
         return retval
@@ -420,6 +430,8 @@ class Player:
         print_grid()
         
     def get_self_grid(self):
+        grid_lock.acquire()
+
         bomb_grid = np.full((map_x_len, map_y_len), 1e6)
         blocks_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.uint8)
         players_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.uint8)
@@ -436,7 +448,9 @@ class Player:
                         case Border():
                             blocks_grid[y][x] = -1
                         case Bomb():
+                            global_bomb_lock.acquire()
                             bomb_grid[y][x] = grid[y][x][k].get_time_left_ms()
+                            global_bomb_lock.release()
                         case Player():
                             if grid[y][x][k] == self:
                                 players_grid[y][x] = 1
@@ -449,6 +463,7 @@ class Player:
                         case BombBoost():
                             power_up_grid[y][x] = 3
 
+        grid_lock.release()
         return players_grid, power_up_grid, blocks_grid, bomb_grid
 
     def __str__(self):

@@ -3,6 +3,8 @@ import game
 import threading
 import random
 import numpy as np
+import torch
+import torch.jit as jit
 
 
 class WalkerPlayer:
@@ -62,6 +64,52 @@ class QLearnPlayer:
             self._stop_event.set()
             self._thread.join()
 
+
+class DQLearnPlayer:
+
+    def __init__(self, model, device): #player,
+        self.policy_net = model #jit.load(modelFile)
+        self.policy_net.eval()
+        self.device = device
+
+        self.player = game.Player('DQWalker')
+        self.env = DQEnv(self.player)
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def _run(self):
+        players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
+        state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten()))
+        state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+    
+        done = False
+        while not self._stop_event.is_set() and not done:
+            action = None
+            with torch.no_grad():
+                # t.max(1) will return the largest column value of each row.
+                # second column on max result is index of where max element was
+                # found, so we pick action with the larger expected reward.
+                action = self.policy_net(state).max(1).indices.view(1, 1)
+        
+            observation, reward, done, _ = self.env.step(action)
+
+            players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
+            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten()))
+            next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+            state = next_state
+
+
+    def start(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run)
+            self._thread.start()
+
+    def stop(self):
+        if self._thread is not None:
+            self._stop_event.set()
+            self._thread.join()
 
 
 class Environment:
@@ -195,3 +243,6 @@ class QEnv(Environment):
             result += state[i]*2**i
         return result
 
+class DQEnv(Environment):
+    def __init__(self, player):
+        super().__init__(player)
