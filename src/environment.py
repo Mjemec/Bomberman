@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torch.jit as jit
 
+ILLIGAL_PENALTY = 500
+
 
 class WalkerPlayer:
     player: game.Player
@@ -64,7 +66,6 @@ class QLearnPlayer:
             self._stop_event.set()
             self._thread.join()
 
-
 class DQLearnPlayer:
 
     def __init__(self, model, device): #player,
@@ -113,7 +114,7 @@ class DQLearnPlayer:
 
 
 class Environment:
-    player : game.Player
+    player: game.Player
 
     def __init__(self, player):
         self.player = player
@@ -137,20 +138,28 @@ class Environment:
 
     def step(self, action):
         r1 = self.player.score
-        moved = True
+        is_legal_move = True
         if action != 5:
-            moved = self.player.move(game.ACTION_SPACE[action])
+            is_legal_move = self.player.move(game.ACTION_SPACE[action])
         else:
-            self.player.place_bomb()
+            y, x = self.player.get_position()
+            for t in game.grid[y][x]:
+                if type(t) is game.Bomb:
+                    self.player.score -= ILLIGAL_PENALTY
+            else:
+                if self.player.bombs:
+                    self.player.place_bomb()
+                else:
+                    self.player.score -= ILLIGAL_PENALTY
         r2 = self.player.score
         done = self.player.dead  # to je fertik
         observation_new = ''  # todo
         info = ''  # recimo
         reward = r2 - r1  # todo
-        if moved:
+        if is_legal_move:
             reward -= 1
         else:
-            reward -= 2
+            reward -= ILLIGAL_PENALTY
         return observation_new, reward, done, info
 
 
@@ -176,8 +185,10 @@ class QEnv(Environment):
                 match game.grid[y-i][x-j][-1]:
                     case game.Wall():  # destroyable
                         neigh8.append(1)
-                    case game.Border():
+                    case game.Bomb():
                         neigh8.append(2)
+                    case game.Border:
+                        neigh8.append(3)
                     case _:
                         neigh8.append(0)
 
@@ -186,25 +197,38 @@ class QEnv(Environment):
         for bomb in game.global_bombs:
             b_x = bomb.x
             b_y = bomb.y
-            distance = game.get_distance(x, y, b_x, b_y)
-            if distance > bomb.strength:
+
+            if not game.is_in_range(x,y, b_x, b_y, bomb.strength):
                 continue
             if b_x == x:
                 if b_y < y:
-                    if bomb.get_time_left_ms() < 2* self.player.speed:
+                    if bomb.get_time_left_ms() < 2 * self.player.speed:
                         dir_bomb_severity[0] = 1
-                else:
-                    if bomb.get_time_left_ms() < 2* self.player.speed:
+                elif b_y > y:
+                    if bomb.get_time_left_ms() < 2 * self.player.speed:
                         dir_bomb_severity[2] = 1
-
+                else:
+                    dir_bomb_severity[0] = 1
+                    dir_bomb_severity[2] = 1
             if b_y == y:
                 if b_x > x:
                     if bomb.get_time_left_ms() < 2 * self.player.speed:
                         dir_bomb_severity[1] = 1
-                else:
+                elif b_x < x:
                     if bomb.get_time_left_ms() < 2 * self.player.speed:
                         dir_bomb_severity[3] = 1
+                else:
+                    dir_bomb_severity[1] = 1
+                    dir_bomb_severity[3] = 1
 
+        for e in game.grid[y][x]:
+            if type(e) is game.Bomb:
+                dir_bomb_severity.append(1)
+                break
+        else:
+            dir_bomb_severity.append(0)
+
+        dir_bomb_severity.append(int(self.player.bombs > 0))
         min_distance = float("inf")
         direction = [0, 0]
         for player in game.alive_players:
@@ -235,12 +259,21 @@ class QEnv(Environment):
 
     @staticmethod
     def encode_state(state) -> int:
-        result = 0
-        for j in range(10):
-            result += state[j]**(3 + j)
+        a = 0
+        for j in range(8):
+            a += state[j]*4**(j)
+        a *= 2**6*3**2
 
-        for i in range(10, 14):
-            result += state[i]*2**i
+        b = 0
+        for t in range(6):
+            b += state[t+8]*2**(t)
+        b *= 3**2
+
+        c = 0
+        for m in range(2):
+            c += state[m+12]*2**m
+
+        result = a + b + c
         return result
 
 class DQEnv(Environment):
