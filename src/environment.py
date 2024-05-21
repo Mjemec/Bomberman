@@ -19,7 +19,7 @@ class WalkerPlayer:
 
     def _run(self):
         while not self._stop_event.is_set() and not self.player.dead:
-            weights = [0.198, 0.198, 0.198, 0.198, 0.198, 0.01]
+            weights = [0.198, 0.198, 0.198, 0.198, 0.198, 0.001]
             action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
             if action == 'bomb':
                 self.player.place_bomb()

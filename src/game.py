@@ -99,12 +99,12 @@ s = SpeedBoost()
 def get_start_grid():
     g_tem = [[[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]],
             [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
-            [[b], [e], [e], [w], [t], [w], [w], [e], [e], [b]],
+            [[b], [e], [w], [w], [t], [w], [w], [w], [e], [b]],
             [[b], [w], [w], [w], [w], [s], [w], [w], [w], [b]],
             [[b], [w], [w], [w], [w], [w], [w], [w], [w], [b]],
             [[b], [w], [w], [s], [w], [w], [w], [t], [w], [b]],
             [[b], [w], [w], [t], [w], [w], [w], [s], [w], [b]],
-            [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
+            [[b], [e], [w], [w], [w], [w], [w], [w], [e], [b]],
             [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
             [[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]]]
     return g_tem
@@ -168,7 +168,7 @@ class Bomb:
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
                         grid_lock.release()
-                        self.owner.score += 10
+                        self.owner.score += 50
                         break
                     case Border():
                         break
@@ -194,7 +194,7 @@ class Bomb:
                     case Empty():
                         continue
                     case Wall():
-                        self.owner.score += 10
+                        self.owner.score += 50
                         grid_lock.acquire()
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
@@ -356,7 +356,7 @@ class Player:
         match direction:
             case 'noop':
                 grid[y][x].append(self)
-                self.score -= 2
+                self.score -= 10
                 retval = True
             case 'up':
                 if self.process_loc(grid[y-1][x]):
@@ -390,8 +390,34 @@ class Player:
     def place_bomb(self):
         y = self._position[0]
         x = self._position[1]
-        bomb = Bomb(3, self._bomb_strength, owner=self, x=x, y=y)
+        bomb = Bomb(2, self._bomb_strength, owner=self, x=x, y=y)
+        b_x = bomb.x
+        b_y = bomb.y
+        is_smart_by_player = False
+        is_smart_by_wall = False
 
+        for p in alive_players:
+            if p is self:
+                continue
+            p_pos = p.get_position()
+            p_x = p_pos[1]
+            p_y = p_pos[0]
+            if is_in_range(p_x, p_y, b_x, b_y, bomb.strength):
+                is_smart_by_player = True
+                break
+        if is_smart_by_player:
+            self.score += 100
+        else:
+            for neigh_block in [grid[b_y - 1][b_x], grid[b_y + 1][b_x],
+                                grid[b_y][b_x - 1], grid[b_y][b_y + 1]]:
+                if type(neigh_block) is Wall:
+                    is_smart_by_wall = True
+
+            if is_smart_by_wall:
+                self.score += 50
+
+        if not is_smart_by_player and not is_smart_by_wall:
+            self.score -= 5
         print_grid()
         
     def get_self_grid(self):
