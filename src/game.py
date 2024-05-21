@@ -98,14 +98,14 @@ s = SpeedBoost()
 
 def get_start_grid():
     g_tem = [[[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]],
-            [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
+            [[b], [e], [e], [e], [w], [w], [e], [e], [e], [b]],
             [[b], [e], [e], [w], [t], [w], [w], [e], [e], [b]],
-            [[b], [w], [w], [w], [w], [s], [w], [w], [w], [b]],
+            [[b], [e], [w], [w], [w], [s], [w], [w], [e], [b]],
             [[b], [w], [w], [w], [w], [w], [w], [w], [w], [b]],
             [[b], [w], [w], [s], [w], [w], [w], [t], [w], [b]],
-            [[b], [w], [w], [t], [w], [w], [w], [s], [w], [b]],
+            [[b], [e], [w], [t], [w], [w], [w], [s], [e], [b]],
             [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
-            [[b], [e], [e], [w], [w], [w], [w], [e], [e], [b]],
+            [[b], [e], [e], [e], [w], [w], [e], [e], [e], [b]],
             [[b], [b], [b], [b], [b], [b], [b], [b], [b], [b]]]
     return g_tem
 
@@ -168,14 +168,17 @@ class Bomb:
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
                         grid_lock.release()
-                        self.owner.score += 10
+                        self.owner.score += 30 #10
                         break
                     case Border():
                         break
                     case Player():
                         if poi is not self.owner:
-                            self.owner.score += 100
-                        poi.terminate()
+                            self.owner.score += 500 #100
+                        try:
+                            poi.terminate()
+                        except:
+                            print(poi.name)
                     case Bomb():
                         if poi is not caller:
                             poi.explode_bomb(self)
@@ -194,7 +197,7 @@ class Bomb:
                     case Empty():
                         continue
                     case Wall():
-                        self.owner.score += 10
+                        self.owner.score += 30 #10
                         grid_lock.acquire()
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
@@ -204,7 +207,7 @@ class Bomb:
                         break
                     case Player():
                         if self.owner is not poi:
-                            self.owner.score += 100
+                            self.owner.score += 500 #100
                         poi.terminate()
                     case Bomb():
                         if poi is not caller:
@@ -290,7 +293,7 @@ class Player:
     def terminate(self):
         #print(f'player{self:2} terminated')
         self.dead = True
-        self.score -= 200
+        self.score -= 300 #200
         players_lock.acquire()
         alive_players.remove(self)
         dead_players.append(self)
@@ -398,9 +401,9 @@ class Player:
         grid_lock.acquire()
 
         bomb_grid = np.full((map_x_len, map_y_len), 1e6)
-        blocks_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.uint8)
-        players_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.uint8)
-        power_up_grid = np.zeros((map_x_len, map_y_len), dtype=np.uint8)
+        blocks_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.int8)
+        players_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.int8)
+        power_up_grid = np.zeros((map_x_len, map_y_len), dtype=np.int8)
 
         for y in range(map_y_len):
             for x in range(map_x_len):

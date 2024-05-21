@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.jit as jit
 
-ILLIGAL_PENALTY = 500
+ILLIGAL_PENALTY = 5 #500
 
 
 class WalkerPlayer:
@@ -80,7 +80,8 @@ class DQLearnPlayer:
 
     def _run(self):
         players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
-        state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten()))
+        nrBombs = np.array([self.player.get_bombs()], dtype=np.uint8)
+        state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten(), nrBombs))
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
     
         done = False
@@ -95,7 +96,8 @@ class DQLearnPlayer:
             observation, reward, done, _ = self.env.step(action)
 
             players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
-            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten()))
+            nrBombs2 = np.array([self.player.get_bombs()], dtype=np.uint8)
+            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
             next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
 
             state = next_state
