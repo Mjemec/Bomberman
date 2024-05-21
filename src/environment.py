@@ -21,10 +21,13 @@ class WalkerPlayer:
         while not self._stop_event.is_set() and not self.player.dead:
             weights = [0.198, 0.198, 0.198, 0.198, 0.198, 0.01]
             action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
-            if action == 'bomb':
-                self.player.place_bomb()
-            else:
-                self.player.move(action)
+            try:
+                if action == 'bomb':
+                    self.player.place_bomb()
+                else:
+                    self.player.move(action)
+            except:
+                break
 
     def start(self):
         if self._thread is None or not self._thread.is_alive():
@@ -38,11 +41,17 @@ class WalkerPlayer:
             self._thread.join()
 
 
+QLearnPlayerQ_table = None
+
+
 class QLearnPlayer:
     Q_table: np.array
 
-    def __init__(self, player):
-        self.Q_table = np.load('array.npy')
+    def __init__(self):
+        global QLearnPlayerQ_table
+        if QLearnPlayerQ_table is None:
+            QLearnPlayerQ_table = np.load('array.npy')
+        self.Q_table = QLearnPlayerQ_table
         self.player = game.Player('QWalker')
         self.env = QEnv(self.player)
         self._stop_event = threading.Event()
@@ -130,7 +139,9 @@ class Environment:
         while len(game.dead_players):
             p = game.dead_players[0]
             game.dead_players.remove(p)
+        game.grid_lock.acquire()
         game.grid = game.get_start_grid()
+        game.grid_lock.release()
         timeout_ctr = 10
         while len(game.alive_players) > 0:
             time.sleep(0.01)
@@ -173,6 +184,33 @@ class QEnv(Environment):
               int[4dirBombCriticalityEnum]{NO_BOMB_OR_LOTS_TIME(>2*speed), WILL_EXPLODE_JUST_NOW},
               int[2 signed dir (y, x)]{NEGATIVE(left , down), ON_POSITION, POSITIVE(right, up)}]
     """
+
+    def step(self, action):
+        r1 = self.player.score
+        is_legal_move = True
+        if action != 5:
+            is_legal_move = self.player.move(game.ACTION_SPACE[action])
+        else:
+            y, x = self.player.get_position()
+            for t in game.grid[y][x]:
+                if type(t) is game.Bomb:
+                    self.player.score -= ILLIGAL_PENALTY
+            else:
+                if self.player.bombs:
+                    self.player.place_bomb()
+                else:
+                    self.player.score -= ILLIGAL_PENALTY
+        r2 = self.player.score
+        done = self.player.dead  # to je fertik
+        observation_new = ''
+        info = ''  # recimo
+        reward = r2 - r1
+        if is_legal_move:
+            reward -= 1
+        else:
+            reward -= ILLIGAL_PENALTY
+        return observation_new, reward, done, info
+
     def get_state(self):
         neigh8 = []
         x = self.player.get_position()[1]
@@ -189,6 +227,8 @@ class QEnv(Environment):
                         neigh8.append(2)
                     case game.Border:
                         neigh8.append(3)
+                    case game.Player:
+                        neigh8.append(4)
                     case _:
                         neigh8.append(0)
 
@@ -261,7 +301,7 @@ class QEnv(Environment):
     def encode_state(state) -> int:
         a = 0
         for j in range(8):
-            a += state[j]*4**(j)
+            a += state[j]*5**(j)
         a *= 2**6*3**2
 
         b = 0

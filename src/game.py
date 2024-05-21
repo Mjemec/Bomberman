@@ -178,7 +178,10 @@ class Bomb:
                         poi.terminate()
                     case Bomb():
                         if poi is not caller:
-                            poi.explode_bomb(self)
+                            try:
+                                poi.explode_bomb(self)
+                            except:
+                                pass
                             poi.timer.cancel()
                     case _:
                         grid_lock.acquire()
