@@ -170,13 +170,13 @@ class Bomb:
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
                         grid_lock.release()
-                        self.owner.score += 30 #10
+                        self.owner.score += 20 #10
                         break
                     case Border():
                         break
                     case Player():
                         if poi is not self.owner:
-                            self.owner.score += 500 #100
+                            self.owner.score += 400 #100
                         try:
                             poi.terminate()
                         except:
@@ -202,7 +202,7 @@ class Bomb:
                     case Empty():
                         continue
                     case Wall():
-                        self.owner.score += 30 #10
+                        self.owner.score += 20 #10
                         grid_lock.acquire()
                         grid[y][elem].pop()
                         grid[y][elem].append(e)
@@ -212,7 +212,7 @@ class Bomb:
                         break
                     case Player():
                         if self.owner is not poi:
-                            self.owner.score += 500 #100
+                            self.owner.score += 400 #100
                         poi.terminate()
                     case Bomb():
                         if poi is not caller:
@@ -304,7 +304,7 @@ class Player:
         try:
             alive_players.remove(self)
             self.dead = True
-            self.score -= 300
+            self.score -= 500 #300
             dead_players.append(self)
         except ValueError:
             pass

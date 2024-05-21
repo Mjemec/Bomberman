@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.jit as jit
 
-ILLIGAL_PENALTY = 5 #500
+ILLIGAL_PENALTY = 10 #5 #500
 
 
 class WalkerPlayer:
