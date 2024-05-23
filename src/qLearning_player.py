@@ -1,12 +1,13 @@
 import os.path
 import datetime
 import argparse
-
+import threading
+import time
 import numpy as np
 import game
 from collections import deque
 from environment import QEnv, WalkerPlayer, QLearnPlayer
-
+import environment
 
 class CustomDeque(deque):
     def __init__(self, *args, **kwargs):
@@ -29,22 +30,33 @@ class CustomDeque(deque):
 
 def learn_to_dodge(epochs: int, Q_table: np.array, demonstration):
     timelast = datetime.datetime.now()
-    learning_rate = 0.5
-    exploration_prob = 0.5
+    learning_rate = 0.1
+    decay_factor = np.log(0.5 / 0.001) / epochs
     discount_factor = 0.5
     max_steps = 100
     n_actions = len(game.ACTION_SPACE)
+    dq_steps = deque(maxlen=100)
 
     for epoch in range(epochs):
+        exploration_prob = 0.5 * np.exp(-decay_factor * epoch)
         if epoch % 100 == 0:
+            avg_steps = f' AVERAGE steps: {sum(dq_steps)/len(dq_steps):.2f}' if len(dq_steps) else ''
             time_per_epoch = (datetime.datetime.now() - timelast).total_seconds() / 100
             print(f'Epoch {epoch} of {epochs} ({epoch / epochs * 100:.2f}%),'
-                  f' ETA: {(epochs - epoch) * time_per_epoch:.2f} seconds')
+                  f' ETA: {(epochs - epoch) * time_per_epoch:.2f} seconds', avg_steps)
             timelast = datetime.datetime.now()
+        while_ctr = 0
+        game.alive_players.clear()
+        game.dead_players.clear()
+        environment.threads.clear()
+        game.global_bombs.clear()
+        while len(game.alive_players) or len(game.global_bombs) or len(environment.threads) or len(game.dead_players):
+            if while_ctr > 1000:
+                pass
+            while_ctr += 1
+            time.sleep(0.001)
+
         game.grid = game.get_start_grid()
-        game.alive_players = []
-        game.dead_players = []
-        game.global_bombs = set()
 
         walker = WalkerPlayer()
 
@@ -60,7 +72,7 @@ def learn_to_dodge(epochs: int, Q_table: np.array, demonstration):
         walker1.start()
         walker2.start()
 
-        for _ in range(max_steps):
+        for step in range(max_steps):
             current_state = env.get_state()
             is_exploration_move = False
             if demonstration:
@@ -86,10 +98,13 @@ def learn_to_dodge(epochs: int, Q_table: np.array, demonstration):
                                               (reward + discount_factor *
                                                np.max(Q_table[next_state]) - Q_table[current_state, action])
             if done:
+                dq_steps.append(step)
                 walker.stop()
                 walker1.stop()
                 walker2.stop()
                 env.reset()
+                if len(game.alive_players):
+                    pass
                 break
 
 
@@ -123,7 +138,7 @@ def main():
         Q_table = np.zeros((n_states, n_actions))
 
     if args.learn_to_dodge:
-        learn_to_dodge(10000, Q_table, demonstration)
+        learn_to_dodge(15000, Q_table, demonstration)
         np.save('array.npy', Q_table)
 
     timelast = datetime.datetime.now()
