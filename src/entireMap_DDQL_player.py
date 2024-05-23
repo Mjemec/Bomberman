@@ -369,7 +369,7 @@ class MetricLogger:
 
 ################################################## Training loop
 
-demonstration = False #False
+demonstration = True #False
 if demonstration:
     game.HEADLESS = False
     game.TIME_CONST = 0.25
@@ -462,10 +462,10 @@ for e in range(episodes):
         if done: #or info["flag_get"]:
             break
 
-    env.reset()
     walker.stop()
     walker1.stop()
     walker2.stop()
+    env.reset()
 
     logger.log_episode()
 

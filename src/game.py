@@ -533,7 +533,7 @@ class Player:
                             environment_grid[y][x] = -1
                         case Bomb():
                             global_bomb_lock.acquire()
-                            if grid[y][x][k].get_time_left_ms() <= 1 and environment_grid[y][x] != 100 and environment_grid[y][x] != 50:
+                            if grid[y][x][k].get_time_left_ms() <= 1000 * TIME_CONST and environment_grid[y][x] != 100 and environment_grid[y][x] != 50:
                                 environment_grid[y][x] = 10
                             elif(environment_grid[y][x] != 100 and environment_grid[y][x] != 50):
                                 environment_grid[y][x] = 20
@@ -551,7 +551,7 @@ class Player:
                             environment_grid[y][x] = 3
 
         grid_lock.release()
-        return environment_grid
+        return environment_grid[None,:]
 
     def __str__(self):
         return f"name={self.name}, score={self.score}, bombs={self._max_bombs}, bombStrngth={self._bomb_strength}"

@@ -45,7 +45,10 @@ class WalkerPlayer:
             if self._thread.is_alive():
                 self._thread.join()
             threads_lock.acquire()
+            #try:
             threads.pop(self)
+            #except KeyError:
+            #    pass
             threads_lock.release()
         else:
             pass
