@@ -249,10 +249,10 @@ class QEnv(Environment):
                     dir_bomb_severity[2] = 1
             if b_y == y:
                 if b_x > x:
-                    if bomb.get_time_left_ms() < 2 * self.player.speed:
+                    if bomb.get_time_left_ms() < 2000 * self.player.speed * game.TIME_CONST:
                         dir_bomb_severity[1] = 1
                 elif b_x < x:
-                    if bomb.get_time_left_ms() < 2 * self.player.speed:
+                    if bomb.get_time_left_ms() < 2000 * self.player.speed * game.TIME_CONST:
                         dir_bomb_severity[3] = 1
                 else:
                     dir_bomb_severity[1] = 1
