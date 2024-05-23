@@ -8,6 +8,8 @@ import torch.jit as jit
 
 ILLIGAL_PENALTY = 10 #5 #500
 
+threads_lock = game.LogedLock()
+threads = dict()
 
 class WalkerPlayer:
     player: game.Player
@@ -21,24 +23,32 @@ class WalkerPlayer:
         while not self._stop_event.is_set() and not self.player.dead:
             weights = [0.198, 0.198, 0.198, 0.198, 0.198, 0.01]
             action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
-            try:
-                if action == 'bomb':
-                    self.player.place_bomb()
-                else:
-                    self.player.move(action)
-            except:
-                break
+
+            if action == 'bomb':
+                self.player.place_bomb()
+            else:
+                self.player.move(action)
+
 
     def start(self):
         if self._thread is None or not self._thread.is_alive():
             self._stop_event.clear()
             self._thread = threading.Thread(target=self._run)
+            threads_lock.acquire()
+            threads[self] = self._thread
+            threads_lock.release()
             self._thread.start()
 
     def stop(self):
         if self._thread is not None:
             self._stop_event.set()
-            self._thread.join()
+            if self._thread.is_alive():
+                self._thread.join()
+            threads_lock.acquire()
+            threads.pop(self)
+            threads_lock.release()
+        else:
+            pass
 
 
 QLearnPlayerQ_table = None
@@ -178,14 +188,22 @@ class Environment:
     def reset(self):
         name = self.player.name
         while len(game.alive_players):
-            p = game.alive_players[0]
-            if p.name == 'QL':
-                pass
-            p.terminate()
+            try:
+                p = game.alive_players[0]
+                p.terminate()
+            except IndexError:
+                break
+
 
         while len(game.dead_players):
             p = game.dead_players[0]
             game.dead_players.remove(p)
+
+        game.global_bomb_lock.acquire()
+        for bomb in game.global_bombs:
+            del bomb
+
+        game.global_bomb_lock.release()
         game.grid_lock.acquire()
         game.grid = game.get_start_grid()
         game.grid_lock.release()
@@ -193,6 +211,10 @@ class Environment:
         while len(game.alive_players) > 0:
             time.sleep(0.01)
             assert timeout_ctr > 0, 'WTF is garbage not working?'
+
+        while len(threads):
+            pass  # fsr threads are not always cleared
+            list(threads.keys())[0].stop()
 
     def step(self, action):
         r1 = self.player.score
@@ -232,36 +254,11 @@ class QEnv(Environment):
               int[2 signed dir (y, x)]{NEGATIVE(left , down), ON_POSITION, POSITIVE(right, up)}]
     """
 
-    def step(self, action):
-        r1 = self.player.score
-        is_legal_move = True
-        if action != 5:
-            is_legal_move = self.player.move(game.ACTION_SPACE[action])
-        else:
-            y, x = self.player.get_position()
-            for t in game.grid[y][x]:
-                if type(t) is game.Bomb:
-                    self.player.score -= ILLIGAL_PENALTY
-            else:
-                if self.player.bombs:
-                    self.player.place_bomb()
-                else:
-                    self.player.score -= ILLIGAL_PENALTY
-        r2 = self.player.score
-        done = self.player.dead  # to je fertik
-        observation_new = ''
-        info = ''  # recimo
-        reward = r2 - r1
-        if is_legal_move:
-            reward -= 1
-        else:
-            reward -= ILLIGAL_PENALTY
-        return observation_new, reward, done, info
-
     def get_state(self):
         neigh8 = []
         x = self.player.get_position()[1]
         y = self.player.get_position()[0]
+        game.grid_lock.acquire()
         for i in range(-1, 2, 1):
             for j in range(-1, 2, 1):
                 if i == 0 and j == 0:
@@ -278,7 +275,7 @@ class QEnv(Environment):
                         neigh8.append(4)
                     case _:
                         neigh8.append(0)
-
+        game.grid_lock.release()
         dir_bomb_severity = [0, 0, 0, 0]  # up, right, down, left
         game.global_bomb_lock.acquire()
         for bomb in game.global_bombs:
