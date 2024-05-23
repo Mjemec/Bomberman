@@ -232,7 +232,7 @@ class Bomb:
                    range(x, x - self.strength, -1)]:
             for elem in ra:
                 try:
-                    poi = grid[elem][x][-1]
+                    poi = grid[y][elem][-1]
                 except IndexError:
                     grid_lock.release('Bomb.explode_bomb')
                     return
@@ -351,8 +351,12 @@ class Player:
             players_lock.release()
             grid_lock.acquire('Player.terminate')
             try:
-                grid[self._position[0]][self._position[1]].remove(self)
-            except ValueError:
+                for elem in grid[self._position[0]][self._position[1]]:
+                    if elem is self:
+                        grid[self._position[0]][self._position[1]].remove(elem)
+            except ValueError as e:
+                pass
+            except RuntimeError as e:
                 pass
             grid_lock.release('Player.terminate')
     """
