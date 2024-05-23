@@ -8,7 +8,7 @@ import torch.jit as jit
 
 ILLIGAL_PENALTY = 500
 
-threads_lock = threading.Lock()
+threads_lock = game.LogedLock()
 threads = dict()
 
 class WalkerPlayer:
@@ -165,12 +165,9 @@ class Environment:
             time.sleep(0.01)
             assert timeout_ctr > 0, 'WTF is garbage not working?'
 
-        threads_lock.acquire()
-
         while len(threads):
             pass  # fsr threads are not always cleared
             list(threads.keys())[0].stop()
-        threads_lock.release()
 
     def step(self, action):
         r1 = self.player.score

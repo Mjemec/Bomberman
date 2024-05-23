@@ -156,7 +156,10 @@ class Bomb:
         except AttributeError:
             return
         global_bomb_lock.acquire()
-        global_bombs.pop(self)
+        try:
+            global_bombs.remove(self)
+        except KeyError:
+            pass # bomb is not in the global set
         global_bomb_lock.release()
 
     def __init__(self, timeout: float, strength: int, owner, x, y):
