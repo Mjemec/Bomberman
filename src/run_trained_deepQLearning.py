@@ -40,7 +40,7 @@ game.alive_players = []
 game.dead_players = []
 game.global_bombs = set()
 
-policy_net_copy = jit.load("DQL_model")
+policy_net_copy = jit.load("DQL_model-first")
 p1 = DQLearnPlayer(policy_net_copy, device)
 
 walker = WalkerPlayer() #DQLearnPlayer(policy_net_copy, device) #WalkerPlayer() #None

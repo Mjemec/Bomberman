@@ -481,6 +481,43 @@ class Player:
 
         grid_lock.release()
         return players_grid, power_up_grid, blocks_grid, bomb_grid
+    
+    def get_self_entire_grid(self):
+        grid_lock.acquire()
+
+        environment_grid = np.zeros((map_x_len, map_y_len), dtype=np.int8)
+
+        for y in range(map_y_len):
+            for x in range(map_x_len):
+                for k in range(len(grid[y][x])):
+                    match(grid[y][x][k]):
+                        case Empty():
+                            continue
+                        case Wall():
+                            environment_grid[y][x] = 1
+                        case Border():
+                            environment_grid[y][x] = -1
+                        case Bomb():
+                            global_bomb_lock.acquire()
+                            if grid[y][x][k].get_time_left_ms() <= 1 and environment_grid[y][x] != 100 and environment_grid[y][x] != 50:
+                                environment_grid[y][x] = 10
+                            elif(environment_grid[y][x] != 100 and environment_grid[y][x] != 50):
+                                environment_grid[y][x] = 20
+                            global_bomb_lock.release()
+                        case Player():
+                            if grid[y][x][k] == self:
+                                environment_grid[y][x] = 100
+                            else:
+                                environment_grid[y][x] = 50
+                        case PowerBoost():
+                            environment_grid[y][x] = 2
+                        case SpeedBoost():
+                            environment_grid[y][x] = 4
+                        case BombBoost():
+                            environment_grid[y][x] = 3
+
+        grid_lock.release()
+        return environment_grid
 
     def __str__(self):
         return f"name={self.name}, score={self.score}, bombs={self._max_bombs}, bombStrngth={self._bomb_strength}"

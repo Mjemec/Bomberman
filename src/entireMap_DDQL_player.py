@@ -56,7 +56,7 @@ class DDQL_agent:
 
         self.save_every = 5e5  # no. of experiences between saving Agent Net
 
-        self.memory = TensorDictReplayBuffer(storage=LazyMemmapStorage(100000, device=torch.device("cpu")))
+        self.memory = TensorDictReplayBuffer(storage=LazyMemmapStorage(1000000, device=torch.device("cpu"))) ##################################### 100 000
         self.batch_size = 32
 
         self.gamma = 0.9
@@ -249,14 +249,14 @@ class DDQLAgentNet(nn.Module):
 
     def __build_cnn(self, c, output_dim):
         return nn.Sequential(
-            nn.Conv2d(in_channels=c, out_channels=32, kernel_size=8, stride=4),
+            nn.Conv2d(in_channels=c, out_channels=16, kernel_size=3, stride=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3136, 512),
+            nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, output_dim),
         )
@@ -393,7 +393,7 @@ map_x_len = len(grid[0])
 map_y_len = len(grid)
 
 #state, info = env.reset()
-n_observations = (map_x_len * map_y_len * 4) + 1
+#n_observations = (map_x_len * map_y_len * 4) + 1
 
 logger = MetricLogger(save_dir)
 
@@ -404,7 +404,7 @@ for e in range(episodes):
     game.dead_players = []
     game.global_bombs = set()
 
-    p1_Agent = DDQL_agent(state_dim=(4, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir)
+    p1_Agent = DDQL_agent(state_dim=(1, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir) #4
 
     p1 = game.Player('DDQL')
     env = DQEnv(p1)
@@ -418,9 +418,11 @@ for e in range(episodes):
     walker2.start()
 
     #state = env.reset()
-
+    """
     players_grid, power_up_grid, blocks_grid, bomb_grid = p1.get_self_grid()
     state = np.stack((players_grid, power_up_grid, blocks_grid, bomb_grid))
+    """
+    state = p1.get_self_entire_grid()
     #state.astype(np.float32)
 
     #nrBombs = np.array([p1.get_bombs()], dtype=np.uint8)
@@ -437,8 +439,11 @@ for e in range(episodes):
         # Agent performs action
         observation, reward, done, info = env.step(action)
 
+        """
         players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = p1.get_self_grid()
         next_state = np.stack((players_grid2, power_up_grid2, blocks_grid2, bomb_grid2))
+        """
+        next_state = p1.get_self_entire_grid()
         #next_state.astype(np.float32)
 
         # Remember
