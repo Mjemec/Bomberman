@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.jit as jit
 
-ILLIGAL_PENALTY = 500
+ILLIGAL_PENALTY = 10 #5 #500
 
 threads_lock = game.LogedLock()
 threads = dict()
@@ -99,7 +99,8 @@ class DQLearnPlayer:
 
     def _run(self):
         players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
-        state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten()))
+        nrBombs = np.array([self.player.get_bombs()], dtype=np.uint8)
+        state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten(), nrBombs))
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
     
         done = False
@@ -114,8 +115,54 @@ class DQLearnPlayer:
             observation, reward, done, _ = self.env.step(action)
 
             players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
-            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten()))
+            nrBombs2 = np.array([self.player.get_bombs()], dtype=np.uint8)
+            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
             next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+            state = next_state
+
+
+    def start(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run)
+            self._thread.start()
+
+    def stop(self):
+        if self._thread is not None:
+            self._stop_event.set()
+            self._thread.join()
+
+
+class DDQLearnPlayer:
+
+    def __init__(self, model, device): #player,
+        self.policy_net = model #jit.load(modelFile)
+        self.policy_net.eval()
+        self.device = device
+
+        self.player = game.Player('DDQWalker')
+        self.env = DQEnv(self.player)
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def _run(self):
+        players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
+        state = np.stack((players_grid, power_up_grid, blocks_grid, bomb_grid))
+    
+        done = False
+        while not self._stop_event.is_set() and not done:
+            action = None
+            with torch.no_grad():
+                state = state[0].__array__() if isinstance(state, tuple) else state.__array__()
+                state = torch.tensor(state, device=self.device).unsqueeze(0)
+                action_values = self.net(state, model="online")
+                action = torch.argmax(action_values, axis=1).item()
+        
+            observation, reward, done, _ = self.env.step(action)
+
+            players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
+            next_state = np.stack((players_grid2, power_up_grid2, blocks_grid2, bomb_grid2))
 
             state = next_state
 

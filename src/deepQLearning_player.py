@@ -22,11 +22,13 @@ import copy
 
 
 # set up matplotlib
+"""
 is_ipython = 'inline' in matplotlib.get_backend()
 if is_ipython:
     from IPython import display
+"""
 
-plt.ion()
+#plt.ion()
 
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,16 +65,21 @@ class DQN(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(DQN, self).__init__()
         #print(n_observations, n_actions)
-        self.layer1 = nn.Linear(n_observations, 256) #nn.Linear(n_observations, 128)
-        self.layer2 = nn.Linear(256, 256) #nn.Linear(128, 128)
-        self.layer3 = nn.Linear(256, n_actions) #nn.Linear(128, n_actions)
+        self.layer1 = nn.Linear(n_observations, 512) #nn.Linear(n_observations, 128)
+        self.layer2 = nn.Linear(512, 256) #nn.Linear(128, 128)
+        #self.layer3 = nn.Linear(256, 256)
+        self.layer4 = nn.Linear(256, 128)
+        self.layer5 = nn.Linear(128, n_actions)
+        #self.layer3 = nn.Linear(256, n_actions) #nn.Linear(128, n_actions)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
     def forward(self, x):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        #x = F.relu(self.layer3(x))
+        x = F.relu(self.layer4(x))
+        return self.layer5(x) #self.layer3(x)
     
 ################################################## Training
 
@@ -83,11 +90,11 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 256 #128
+BATCH_SIZE = 512 #256 #128
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 1000
+EPS_DECAY = 100000 #500000 #80000 #1000
 TAU = 0.005
 LR = 1e-4
 
@@ -99,7 +106,7 @@ map_x_len = len(grid[0])
 map_y_len = len(grid)
 
 #state, info = env.reset()
-n_observations = map_x_len * map_y_len * 4 #len(state) # 4 matrices representing entire game
+n_observations = (map_x_len * map_y_len * 4) + 1 #len(state) # 4 matrices representing entire game
 
 policy_net = DQN(n_observations, n_actions).to(device)
 target_net = DQN(n_observations, n_actions).to(device)
@@ -133,29 +140,32 @@ episode_durations = []
 
 
 def plot_durations(show_result=False):
-    plt.figure(1)
+    #plt.figure(1)
     durations_t = torch.tensor(episode_durations, dtype=torch.float)
-    if show_result:
-        plt.title('Result')
-    else:
-        plt.clf()
-        plt.title('Training...')
+    #if show_result:
+    plt.plot(durations_t.numpy())
+    plt.title('Result')
+    #else:
+    #    plt.clf()
+    #    plt.title('Training...')
     plt.xlabel('Episode')
     plt.ylabel('Cumulated Rewards') #plt.ylabel('Duration')
-    plt.plot(durations_t.numpy())
     # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
+    #if len(durations_t) >= 100:
+    #    means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+    #    means = torch.cat((torch.zeros(99), means))
+    #    plt.plot(means.numpy())
 
-    plt.pause(0.001)  # pause a bit so that plots are updated
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
+    
+    plt.savefig('DQL-rewardsPlot.png') 
+
+    #plt.pause(0.001)  # pause a bit so that plots are updated
+    #if is_ipython:
+        #if not show_result:
+        #    display.display(plt.gcf())
+        #    display.clear_output(wait=True)
+        #else:
+        #   display.display(plt.gcf())
 
 ################################################## Training optimizer
 
@@ -206,13 +216,21 @@ def optimize_model():
     optimizer.step()
 
 ################################################## Training loop
-game.HEADLESS = False
+demonstration = False
+if demonstration:
+    game.HEADLESS = False
+    game.TIME_CONST = 0.25
+else:
+    game.HEADLESS = True
+    game.TIME_CONST = 0.001
+
+average_of_100 = deque([0]*100,maxlen=100)
 
 max_steps = 1000 #Nr of actions before ending game if the player did not win/die
 
 num_episodes = 0
 if torch.cuda.is_available():
-    num_episodes = 50000 #10000 #600
+    num_episodes = 100000 #50000 #10000 #600
 #else:
 #    num_episodes = 50
 
@@ -224,11 +242,13 @@ policy_net_copy = None
 policy_net_copy2 = None
 
 for i_episode in range(num_episodes):
+    average_of_100.appendleft(last_score)
     if (i_episode + 1) % 100 == 0:
         time_per_epoch = (datetime.datetime.now() - timelast).total_seconds()/100
         print(f'Epoch {i_episode} of {num_episodes} ({i_episode/num_episodes*100:.2f}%),'
               f' ETA: {(num_episodes-i_episode)*time_per_epoch:.2f} seconds,'
-              f' last score: {last_score}, best score: {best_score}')
+              f' last score: {last_score}, best score: {best_score}'
+              f' average of last 100: {sum(average_of_100)/len(average_of_100):.2f}')
         timelast = datetime.datetime.now()
 
     # Initialize the environment and get its state
@@ -243,7 +263,7 @@ for i_episode in range(num_episodes):
     walker = None
     walker1 = None
     walker2 = WalkerPlayer()
-
+    """
     if i_episode % 10000 == 0 and (i_episode / 10000) % 2 != 0 :
         policy_net_copy = copy.deepcopy(policy_net)
     if i_episode % 10000 == 0 and (i_episode / 10000) % 2 == 0:
@@ -258,6 +278,9 @@ for i_episode in range(num_episodes):
         walker1 = DQLearnPlayer(policy_net_copy2, device)
     else:
         walker1 = WalkerPlayer()
+    """
+    walker = WalkerPlayer()
+    walker1 = WalkerPlayer()
 
 
     walker.start()
@@ -265,8 +288,8 @@ for i_episode in range(num_episodes):
     walker2.start()
 
     players_grid, power_up_grid, blocks_grid, bomb_grid = p1.get_self_grid()
-
-    state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten()))
+    nrBombs = np.array([p1.get_bombs()], dtype=np.uint8)
+    state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten(), nrBombs))
     #print(state.shape)
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     #print(state.shape)
@@ -283,13 +306,22 @@ for i_episode in range(num_episodes):
         #done = terminated or truncated
 
         #if done:
+        """
         next_state = None
         if not done:
             players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = p1.get_self_grid()
-            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten()))
+            nrBombs2 = np.array([p1.get_bombs()], dtype=np.uint8)
+            observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
             #observation = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
             next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+        """
+        players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = p1.get_self_grid()
+        nrBombs2 = np.array([p1.get_bombs()], dtype=np.uint8)
+        observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
+        #observation = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+
+        next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
         # Store the transition in memory
         memory.push(state, action, next_state, reward)
@@ -309,7 +341,7 @@ for i_episode in range(num_episodes):
         target_net.load_state_dict(target_net_state_dict)
 
 
-        if done or len(game.alive_players) < 2:
+        if done or len(game.alive_players) < 2 or t == max_steps - 1:
             last_score = p1.get_score()
             if last_score > best_score:
                 best_score = last_score
@@ -319,13 +351,15 @@ for i_episode in range(num_episodes):
             walker1.stop()
             walker2.stop()
             """
+            episode_durations.append(total_reward)
             break
 
-
+        """
         if done or t == max_steps - 1:
             episode_durations.append(total_reward)#t + 1)
-            plot_durations()
+            #plot_durations()
             break
+        """
     
     env.reset()
     walker.stop()
@@ -337,6 +371,16 @@ jit.save(torch.jit.script(policy_net), "DQL_model")
 #model = jit.load("DQL_model")
 
 print('Complete')
-plot_durations(show_result=True)
-plt.ioff()
-plt.show()
+#plot_durations(show_result=True)
+#plt.ioff()
+
+#plt.show()
+"""
+plt.plot(episode_durations)
+plt.title('Result')
+plt.xlabel('Episode')
+plt.ylabel('Cumulated Rewards') #plt.ylabel('Duration')
+plt.savefig('DQL-rewardsPlot.png')
+plt.close()
+"""
+np.savetxt("DQL_rewardsList.txt", np.array(episode_durations), delimiter=',')
