@@ -341,7 +341,8 @@ class SmartPlayer:
 
             #weights = [0.198, 0.198, 0.198, 0.198, 0.198, 0.01]
             #action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
-
+            game.pause_lock.acquire()
+            game.pause_lock.release()
             if action == 'bomb':
                 self.player.place_bomb()
             else:
@@ -363,10 +364,10 @@ class SmartPlayer:
             if self._thread.is_alive():
                 self._thread.join()
             threads_lock.acquire()
-            #try:
-            threads.pop(self)
-            #except KeyError:
-            #    pass
+            try:
+                threads.pop(self)
+            except KeyError:
+               pass
             threads_lock.release()
         else:
             pass
@@ -397,9 +398,9 @@ class Environment:
             del bomb
 
         game.global_bomb_lock.release()
-        game.grid_lock.acquire()
+        game.grid_lock.acquire('game.get_start_grid()')
         game.grid = game.get_start_grid()
-        game.grid_lock.release()
+        game.grid_lock.release('game.get_start_grid()')
         timeout_ctr = 10
         while len(game.alive_players) > 0:
             time.sleep(0.01)
@@ -447,6 +448,7 @@ class QEnv(Environment):
               int[2 signed dir (y, x)]{NEGATIVE(left , down), ON_POSITION, POSITIVE(right, up)}]
     """
     def step(self, action):
+        game.pause_lock.acquire()
         ILLIGAL_PENALTY = 50
         r1 = self.player.score
         is_legal_move = True
@@ -471,13 +473,15 @@ class QEnv(Environment):
             reward -= ILLIGAL_PENALTY//2
         else:
             reward -= ILLIGAL_PENALTY
+        game.pause_lock.release()
         return observation_new, reward, done, not is_legal_move
 
     def get_state(self):
+        game.pause_lock.acquire()
         neigh8 = []
         x = self.player.get_position()[1]
         y = self.player.get_position()[0]
-        game.grid_lock.acquire()
+        game.grid_lock.acquire('get_state')
         for i in range(-1, 2, 1):
             for j in range(-1, 2, 1):
                 if i == 0 and j == 0:
@@ -494,7 +498,7 @@ class QEnv(Environment):
                         neigh8.append(4)
                     case _:
                         neigh8.append(0)
-        game.grid_lock.release()
+        game.grid_lock.release('get_state')
         dir_bomb_severity = [0, 0, 0, 0]  # up, right, down, left
         game.global_bomb_lock.acquire()
         for bomb in game.global_bombs:
@@ -557,7 +561,7 @@ class QEnv(Environment):
         game.global_bomb_lock.release()
         neigh8.extend(direction)
         neigh8.extend(dir_bomb_severity)
-
+        game.pause_lock.release()
         return QEnv.encode_state(neigh8)
 
     @staticmethod

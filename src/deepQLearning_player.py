@@ -14,7 +14,7 @@ import torch.nn.functional as F
 import numpy as np 
 import random
 import game
-from environment import DQEnv, WalkerPlayer, DQLearnPlayer
+from environment import DQEnv, WalkerPlayer, DQLearnPlayer, SmartPlayer
 import datetime
 import torch.jit as jit
 import copy
@@ -217,7 +217,7 @@ def optimize_model():
     optimizer.step()
 
 ################################################## Training loop
-demonstration = False
+demonstration = True
 if demonstration:
     game.HEADLESS = False
     game.TIME_CONST = 0.25
@@ -229,7 +229,7 @@ average_of_100 = deque([0]*100,maxlen=100)
 
 max_steps = 1000 #Nr of actions before ending game if the player did not win/die
 
-num_episodes = 0
+num_episodes = 50
 if torch.cuda.is_available():
     num_episodes = 100000 #50000 #10000 #600
 #else:
@@ -261,28 +261,9 @@ for i_episode in range(num_episodes):
     p1 = game.Player('DQL')
     env = DQEnv(p1) #QEnv(p1)
 
-    walker = None
-    walker1 = None
-    walker2 = WalkerPlayer()
-    """
-    if i_episode % 10000 == 0 and (i_episode / 10000) % 2 != 0 :
-        policy_net_copy = copy.deepcopy(policy_net)
-    if i_episode % 10000 == 0 and (i_episode / 10000) % 2 == 0:
-        policy_net_copy2 = copy.deepcopy(policy_net)
-
-
-    if i_episode >= 10000:
-        walker = DQLearnPlayer(policy_net_copy, device)
-    else:
-        walker = WalkerPlayer()
-    if i_episode >= 20000:
-        walker1 = DQLearnPlayer(policy_net_copy2, device)
-    else:
-        walker1 = WalkerPlayer()
-    """
-    walker = WalkerPlayer()
-    walker1 = WalkerPlayer()
-
+    walker = SmartPlayer()
+    walker2 = SmartPlayer()
+    walker1 = SmartPlayer()
 
     walker.start()
     walker1.start()
@@ -301,6 +282,7 @@ for i_episode in range(num_episodes):
 
     for t in range(max_steps): #for t in count():
         action = select_action(state)
+
         #observation, reward, terminated, truncated, _ = env.step(action.item())
         observation, reward, done, _ = env.step(action)
         total_reward += reward
@@ -323,7 +305,7 @@ for i_episode in range(num_episodes):
         observation = p1.get_self_entire_grid()
         observation = np.concatenate((observation.flatten(), nrBombs))
         observation = observation / np.max(observation)
-
+        game.pause_lock.acquire()
         #players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = p1.get_self_grid()
         #nrBombs2 = np.array([p1.get_bombs()], dtype=np.uint8)
         #observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
@@ -347,7 +329,7 @@ for i_episode in range(num_episodes):
         for key in policy_net_state_dict:
             target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
         target_net.load_state_dict(target_net_state_dict)
-
+        game.pause_lock.release()
 
         if done or len(game.alive_players) < 2 or t == max_steps - 1:
             last_score = p1.get_score()

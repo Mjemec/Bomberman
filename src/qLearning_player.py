@@ -176,9 +176,9 @@ def main():
                   illegal_stat, moves_stat, win_rate)
 
             timelast = datetime.datetime.now()
-        game.grid_lock.acquire()
+        game.grid_lock.acquire('game.get_start_grid()')
         game.grid = game.get_start_grid()
-        game.grid_lock.release()
+        game.grid_lock.release('game.get_start_grid()')
         game.alive_players = deque(maxlen=4)
         game.dead_players = deque(maxlen=4)
         game.global_bombs = set()

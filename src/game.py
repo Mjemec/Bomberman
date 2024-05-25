@@ -14,19 +14,20 @@ players_lock = threading.Lock()
 
 
 class LogedLock:
-    g_gridlock_queue = deque(maxlen=10)
+    lock_queue = deque(maxlen=10)
     lock = threading.Lock()
 
     def acquire(self, function = ''):
         self.lock.acquire()
-        self.g_gridlock_queue.append(f'thid={threading.current_thread().ident}, locked in {function}')
+        self.lock_queue.append(f'thid={threading.current_thread().ident}, locked in {function}')
 
     def release(self, function = ''):
         self.lock.release()
-        self.g_gridlock_queue.append(f'thid={threading.current_thread().ident}, unlocked in {function}')
+        self.lock_queue.append(f'thid={threading.current_thread().ident}, unlocked in {function}')
 
 
 grid_lock = LogedLock()
+pause_lock = LogedLock()
 alive_players = deque(maxlen=4)
 dead_players = deque(maxlen=4)
 
@@ -146,6 +147,7 @@ class Bomb:
     strength: int
     x: int
     y: int
+    is_canceled: bool = False
     timer: threading.Timer
     time_created = None
     timeout = float('inf')
@@ -162,6 +164,15 @@ class Bomb:
             pass # bomb is not in the global set
         global_bomb_lock.release()
 
+    def time_count(self, counts, fun: callable):
+        while counts:
+            pause_lock.acquire()
+            pause_lock.release()
+            time.sleep(TIME_CONST)
+            counts -= 1
+        if not self.is_canceled:
+            fun()
+
     def __init__(self, timeout: float, strength: int, owner, x, y):
         self.owner = owner
         self.strength = strength
@@ -170,7 +181,8 @@ class Bomb:
         if type(grid[y][x][0]) is Empty and self.owner.bombs:
             self.owner.bombs -= 1
             self.timeout = timeout*TIME_CONST
-            self.timer = threading.Timer(self.timeout, self.explode_bomb)
+            # self.timer = threading.Timer(self.timeout, self.explode_bomb)
+            self.timer = threading.Thread(target=self.time_count, args=(timeout, self.explode_bomb))
             global_bomb_lock.acquire()
             self.time_created = datetime.now()
             global_bombs.add(self)
@@ -223,7 +235,7 @@ class Bomb:
                     case Bomb():
                         if poi is not caller:
                             bombs_to_explode.append(poi)
-                            poi.timer.cancel()
+                            poi.is_canceled = True
                     case _:
                         grid[elem][x].pop()
                         grid[elem][x].append(e)
@@ -254,7 +266,7 @@ class Bomb:
                             players_to_terminate.append(poi)
                     case Bomb():
                         if poi is not caller:
-                            poi.timer.cancel()
+                            poi.is_canceled = True
                             bombs_to_explode.append(poi)
                     case _:
                         grid[y][elem].pop()
@@ -526,7 +538,7 @@ class Player:
         return players_grid, power_up_grid, blocks_grid, bomb_grid
     
     def get_self_entire_grid(self):
-        grid_lock.acquire('Player.get_self_grid') #grid_lock.acquire()
+        grid_lock.acquire('Player.get_self_grid')
 
         environment_grid = np.zeros((map_x_len, map_y_len), dtype=np.int8)
 
@@ -559,7 +571,7 @@ class Player:
                         case BombBoost():
                             environment_grid[y][x] = 50 #3
 
-        grid_lock.release('Player.get_self_grid') #grid_lock.release()
+        grid_lock.release('Player.get_self_grid')
         return environment_grid[None,:]
     
     def get_self_gridSmart(self):
