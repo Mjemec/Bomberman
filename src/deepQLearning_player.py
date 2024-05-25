@@ -106,7 +106,7 @@ map_x_len = len(grid[0])
 map_y_len = len(grid)
 
 #state, info = env.reset()
-n_observations = (map_x_len * map_y_len * 4) + 1 #len(state) # 4 matrices representing entire game
+n_observations = (map_x_len * map_y_len) + 1 #(map_x_len * map_y_len * 4) + 1 #len(state) # 4 matrices representing entire game
 
 policy_net = DQN(n_observations, n_actions).to(device)
 target_net = DQN(n_observations, n_actions).to(device)
@@ -124,6 +124,7 @@ def select_action(state):
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
+    print("Exploration probability:", eps_threshold)
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
@@ -222,7 +223,7 @@ if demonstration:
     game.TIME_CONST = 0.25
 else:
     game.HEADLESS = True
-    game.TIME_CONST = 0.001
+    game.TIME_CONST = 0.01 #0.001
 
 average_of_100 = deque([0]*100,maxlen=100)
 
@@ -287,9 +288,11 @@ for i_episode in range(num_episodes):
     walker1.start()
     walker2.start()
 
-    players_grid, power_up_grid, blocks_grid, bomb_grid = p1.get_self_grid()
+    #players_grid, power_up_grid, blocks_grid, bomb_grid = p1.get_self_grid()
     nrBombs = np.array([p1.get_bombs()], dtype=np.uint8)
-    state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten(), nrBombs))
+    state = p1.get_self_entire_grid()
+    state = np.concatenate((state.flatten(), nrBombs))
+    state = state / np.max(state)
     #print(state.shape)
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     #print(state.shape)
@@ -316,9 +319,14 @@ for i_episode in range(num_episodes):
 
             next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
         """
-        players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = p1.get_self_grid()
-        nrBombs2 = np.array([p1.get_bombs()], dtype=np.uint8)
-        observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
+        nrBombs = np.array([p1.get_bombs()], dtype=np.uint8)
+        observation = p1.get_self_entire_grid()
+        observation = np.concatenate((observation.flatten(), nrBombs))
+        observation = observation / np.max(observation)
+
+        #players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = p1.get_self_grid()
+        #nrBombs2 = np.array([p1.get_bombs()], dtype=np.uint8)
+        #observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
         #observation = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
 
         next_state = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)

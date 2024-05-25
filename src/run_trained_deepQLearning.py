@@ -17,6 +17,7 @@ from environment import DQEnv, WalkerPlayer, DQLearnPlayer
 import datetime
 import torch.jit as jit
 import copy
+import time
 
 
 # if GPU is to be used
@@ -40,7 +41,7 @@ game.alive_players = []
 game.dead_players = []
 game.global_bombs = set()
 
-policy_net_copy = jit.load("DQL_model-first")
+policy_net_copy = jit.load("DQL_model-Colab")
 p1 = DQLearnPlayer(policy_net_copy, device)
 
 walker = WalkerPlayer() #DQLearnPlayer(policy_net_copy, device) #WalkerPlayer() #None
@@ -54,6 +55,8 @@ walker2.start()
 
 
 while True:
+    game.print_grid()
+    time.sleep(0.0010)
     if len(game.alive_players) < 2:
         p1.stop()
         walker.stop()

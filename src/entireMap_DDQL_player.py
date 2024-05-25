@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 import random
 import game
-from environment import DQEnv, WalkerPlayer, DQLearnPlayer
+from environment import DQEnv, WalkerPlayer, DQLearnPlayer, SmartPlayer
 import datetime
 import torch.jit as jit
 import copy
@@ -38,7 +38,7 @@ import copy
 ################################################## Agent
 
 class DDQL_agent:
-    def __init__(self, state_dim, action_dim, save_dir):
+    def __init__(self, state_dim, action_dim, save_dir, checkpoint=None):
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.save_dir = save_dir
@@ -50,7 +50,7 @@ class DDQL_agent:
         self.net = self.net.to(device=self.device)
 
         self.exploration_rate = 1
-        self.exploration_rate_decay = 0.99999975
+        self.exploration_rate_decay = 0.9999975 #0.9999985 #0.99999975
         self.exploration_rate_min = 0.1
         self.curr_step = 0
 
@@ -67,6 +67,9 @@ class DDQL_agent:
         self.burnin = 1e4  # min. experiences before training
         self.learn_every = 3  # no. of experiences between updates to Q_online
         self.sync_every = 1e4  # no. of experiences between Q_target & Q_online sync
+
+        if checkpoint:
+            self.load(checkpoint)
 
     def act(self, state):
         """
@@ -201,7 +204,7 @@ class DDQL_agent:
         if not load_path.exists():
             raise ValueError(f"{load_path} does not exist")
 
-        ckp = torch.load(load_path, map_location=('cuda' if self.use_cuda else 'cpu'))
+        ckp = torch.load(load_path, map_location=self.device) #('cuda' if self.use_cuda else 'cpu'))
         exploration_rate = ckp.get('exploration_rate')
         state_dict = ckp.get('model')
 
@@ -375,7 +378,7 @@ if demonstration:
     game.TIME_CONST = 0.25
 else:
     game.HEADLESS = True
-    game.TIME_CONST = 0.001
+    game.TIME_CONST = 0.01 #0.001
 
 
 use_cuda = torch.cuda.is_available()
@@ -392,25 +395,27 @@ grid = game.get_start_grid()
 map_x_len = len(grid[0])
 map_y_len = len(grid)
 
+checkpoint_model = None #Path('DDQL_model_Dict')
+p1_Agent = DDQL_agent(state_dim=(1, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir, checkpoint=checkpoint_model) #4
 #state, info = env.reset()
 #n_observations = (map_x_len * map_y_len * 4) + 1
 
 logger = MetricLogger(save_dir)
 
-episodes = 100000 #40000#40
+episodes = 100000 #200000 #100000 #40000#40
 for e in range(episodes):
     game.grid = game.get_start_grid()
     game.alive_players = []
     game.dead_players = []
     game.global_bombs = set()
 
-    p1_Agent = DDQL_agent(state_dim=(1, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir) #4
+    #p1_Agent = DDQL_agent(state_dim=(1, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir) #4
 
     p1 = game.Player('DDQL')
     env = DQEnv(p1)
 
-    walker = WalkerPlayer()
-    walker1 = WalkerPlayer()
+    walker = SmartPlayer() #WalkerPlayer()
+    walker1 = SmartPlayer() #WalkerPlayer()
     walker2 = WalkerPlayer()
 
     walker.start()
@@ -423,6 +428,7 @@ for e in range(episodes):
     state = np.stack((players_grid, power_up_grid, blocks_grid, bomb_grid))
     """
     state = p1.get_self_entire_grid()
+    state = state / np.max(state)
     #state.astype(np.float32)
 
     #nrBombs = np.array([p1.get_bombs()], dtype=np.uint8)
@@ -432,6 +438,9 @@ for e in range(episodes):
 
     # Play the game!
     while True:
+
+        #Normalize input data
+        #state = state / np.max(state)
 
         # Run agent on the state
         action = p1_Agent.act(state)
@@ -444,6 +453,7 @@ for e in range(episodes):
         next_state = np.stack((players_grid2, power_up_grid2, blocks_grid2, bomb_grid2))
         """
         next_state = p1.get_self_entire_grid()
+        next_state = next_state / np.max(next_state)
         #next_state.astype(np.float32)
 
         # Remember
@@ -459,13 +469,13 @@ for e in range(episodes):
         state = next_state
 
         # Check if end of game
-        if done: #or info["flag_get"]:
+        if done or len(game.alive_players) < 2: #or info["flag_get"]:
             break
 
-    env.reset()
     walker.stop()
     walker1.stop()
     walker2.stop()
+    env.reset()
 
     logger.log_episode()
 
@@ -475,4 +485,4 @@ for e in range(episodes):
 
 torch.save(dict(model=p1_Agent.net.state_dict(), exploration_rate=p1_Agent.exploration_rate), "DDQL_model_Dict")
 
-jit.save(torch.jit.script(p1_Agent.net), "DDQL_model")
+#jit.save(torch.jit.script(p1_Agent.net), "DDQL_model")
