@@ -71,7 +71,7 @@ class QLearnPlayer:
         done = False
         while not self._stop_event.is_set() and not done:
             current_state = self.env.get_state()
-            action = np.argmax(self.Q_table[current_state])
+            action = np.argmax(self.Q_table[current_state]) if np.random.rand() < 0.05 else np.random.randint(0, 6)
             observation, reward, done, _ = self.env.step(action)
 
     def start(self):
@@ -253,6 +253,32 @@ class QEnv(Environment):
               int[4dirBombCriticalityEnum]{NO_BOMB_OR_LOTS_TIME(>2*speed), WILL_EXPLODE_JUST_NOW},
               int[2 signed dir (y, x)]{NEGATIVE(left , down), ON_POSITION, POSITIVE(right, up)}]
     """
+    def step(self, action):
+        ILLIGAL_PENALTY = 50
+        r1 = self.player.score
+        is_legal_move = True
+        if action != 5:
+            is_legal_move = self.player.move(game.ACTION_SPACE[action])
+        else:
+            y, x = self.player.get_position()
+            for t in game.grid[y][x]:
+                if type(t) is game.Bomb:
+                    self.player.score -= ILLIGAL_PENALTY*10
+            else:
+                if self.player.bombs:
+                    self.player.place_bomb()
+                else:
+                    self.player.score -= ILLIGAL_PENALTY*10
+        r2 = self.player.score
+        done = self.player.dead  # to je fertik
+        observation_new = ''  # todo
+        info = ''  # recimo
+        reward = r2 - r1  # todo
+        if is_legal_move:
+            reward -= ILLIGAL_PENALTY//2
+        else:
+            reward -= ILLIGAL_PENALTY
+        return observation_new, reward, done, not is_legal_move
 
     def get_state(self):
         neigh8 = []

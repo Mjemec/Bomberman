@@ -6,7 +6,7 @@ import time
 import numpy as np
 import game
 from collections import deque
-from environment import QEnv, WalkerPlayer, QLearnPlayer
+from environment import QEnv, WalkerPlayer, QLearnPlayer, SmartPlayer
 import environment
 
 class CustomDeque(deque):
@@ -108,29 +108,36 @@ def learn_to_dodge(epochs: int, Q_table: np.array, demonstration):
                 break
 
 
+illegal_moves = deque(maxlen=100)
+average_moves = deque(maxlen=100)
+win_deque = deque(maxlen=100)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bomberman")
     parser.add_argument('--headless', action='store_true', help='Do not display the game, increases speed')
     parser.add_argument('--epochs', '-n', type=int, help='Number of epochs', default=10000)
     parser.add_argument('--learn_to_dodge', '-d', action='store_true', help='Number of epochs')
+    parser.add_argument('--exploration_rate', '-e', type=float, help='Number of epochs', default=0.25)
+    parser.add_argument('--learning_rate', '-l', type=float, help='Number of epochs', default=0.1)
     args = parser.parse_args()
     n_states = 5**8*2**6*3**2  # Number of states in the grid world
     n_actions = 6  # Number of possible actions (up, down, left, right, noop, bomb)
 
-    learning_rate = 0.08
-    discount_factor = 0.5
-    decay_factor = 0.25
-    exploration_prob = 0.0675
+    learning_rate = args.learning_rate
+    discount_factor = 0.0
     epochs = args.epochs
+    starting_exploration_probability = args.exploration_rate
+    decay_factor = np.log(starting_exploration_probability / 0.0001) / epochs
     max_steps = 1000
     demonstration = not args.headless
-
+    max_avg_win_rate = 0
     if demonstration:
         game.HEADLESS = False
         game.TIME_CONST = 0.25
     else:
         game.HEADLESS = True
-        game.TIME_CONST = 0.0005
+        game.TIME_CONST = 0.01
 
     if os.path.exists('array.npy'):
         Q_table = np.load('array.npy')
@@ -145,31 +152,45 @@ def main():
     last_score = 0
     best_score = -float('inf')
     average_of_100 = deque([0] * 100, maxlen=100)
-    last_decisions = CustomDeque(maxlen=2)
-
+    last_decisions = CustomDeque(maxlen=3)
     for epoch in range(epochs):
+        exploration_prob = starting_exploration_probability * np.exp(-decay_factor * epoch)
+        last_illegal_moves = 0
         average_of_100.appendleft(last_score)
-        if epoch % 100 == 0:
-            time_per_epoch = (datetime.datetime.now() - timelast).total_seconds()/100
+        if epoch % 10 == 0:
+            time_per_epoch = (datetime.datetime.now() - timelast).total_seconds()/10
+            moves_stat = f'average move count {sum(average_moves)/len(average_moves)}' if epoch else ''
+            illegal_stat = f'average illegal moves {sum(illegal_moves)/len(illegal_moves)}' if epoch else ''
+            win_rate = f'winning rate {sum(win_deque)/len(win_deque)}' if epoch else ''
+            if epoch:
+                w_rate = sum(win_deque)/len(win_deque)
+                if w_rate > max_avg_win_rate:
+                    max_avg_win_rate = w_rate
+                    print('save winning matrix')
+                    np.save('best.npy', Q_table)
+                    print('saved winning matrix')
+
             print(f'Epoch {epoch} of {epochs} ({epoch/epochs*100:.2f}%),'
-                  f' ETA: {(epochs-epoch)*time_per_epoch:.2f} seconds,'
-                  f' last score: {last_score}, best score: {best_score}, average of last 10: {sum(average_of_100) / len(average_of_100):.2f}')
+                  f' ETA: {(epochs-epoch)*time_per_epoch:.2f} sec,'
+                  f' last: {last_score}, score: {best_score}, average batch: {sum(average_of_100) / len(average_of_100):.2f}',
+                  illegal_stat, moves_stat, win_rate)
+
             timelast = datetime.datetime.now()
         game.grid_lock.acquire()
         game.grid = game.get_start_grid()
         game.grid_lock.release()
-        game.alive_players = []
-        game.dead_players = []
+        game.alive_players = deque(maxlen=4)
+        game.dead_players = deque(maxlen=4)
         game.global_bombs = set()
-        walker = WalkerPlayer()
+        walker = SmartPlayer()
         p1 = game.Player('QL')
         env = QEnv(p1)
-        walker1 = WalkerPlayer()
-        walker2 = WalkerPlayer()
+        walker1 = SmartPlayer()
+        walker2 = SmartPlayer()
         walker.start()
         walker1.start()
         walker2.start()
-
+        moves = 0
         for _ in range(max_steps):
             current_state = env.get_state()
             is_exploration_move = False
@@ -186,23 +207,28 @@ def main():
 
             if demonstration:
                 print(f'\raction: {game.ACTION_SPACE[action]}, is exploratory move: {is_exploration_move}')
-            observation, reward, done, _ = env.step(action)
+            observation, reward, done, is_illegal = env.step(action)
+            if is_illegal:
+                last_illegal_moves+=1
             t = last_decisions.append((current_state, action))
 
             next_state = env.get_state()
 
             Q_table[current_state, action] += learning_rate * \
-                (reward + discount_factor *
-                 np.max(Q_table[next_state]) - Q_table[current_state, action])
-
+                 (reward + discount_factor *
+                  np.max(Q_table[next_state]) - Q_table[current_state, action])
+            moves += 1
+            for i, tpl_decision in enumerate(last_decisions):
+                Q_table[tpl_decision] += learning_rate * reward * 0.25**i
             if done or len(game.alive_players) < 2:
                 if demonstration:
                     print(f'action traceback: {last_decisions}')
                     pass
-                # if env.player.dead:
-                #     for i, tpl_decision in enumerate(last_decisions):
                 if env.player.dead:
-                    Q_table[current_state, action] -= learning_rate*1000
+                    win_deque.append(0)
+                    Q_table[current_state, action] -= learning_rate*500
+                else:
+                    win_deque.append(1)
                 last_score = p1.get_score()
                 if last_score > best_score:
                     best_score = last_score
@@ -210,6 +236,9 @@ def main():
                 walker1.stop()
                 walker2.stop()
                 env.reset()
+                average_moves.append(moves)
+                illegal_moves.append(last_illegal_moves)
+                last_illegal_moves = 0
                 break
             current_state = next_state
 
