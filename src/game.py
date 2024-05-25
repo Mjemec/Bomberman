@@ -270,8 +270,13 @@ class Bomb:
             global_bombs.remove(self)
         global_bomb_lock.release()
 
+        #for p in players_to_terminate:
+        #    p.terminate()
         for p in players_to_terminate:
-            p.terminate()
+            try:
+                p.terminate()
+            except ValueError:
+                ...
 
         for b in bombs_to_explode:
             b.explode_bomb()
@@ -521,7 +526,7 @@ class Player:
         return players_grid, power_up_grid, blocks_grid, bomb_grid
     
     def get_self_entire_grid(self):
-        grid_lock.acquire()
+        grid_lock.acquire('Player.get_self_grid') #grid_lock.acquire()
 
         environment_grid = np.zeros((map_x_len, map_y_len), dtype=np.int8)
 
@@ -532,30 +537,68 @@ class Player:
                         case Empty():
                             continue
                         case Wall():
-                            environment_grid[y][x] = 1
+                            environment_grid[y][x] = 20#1
                         case Border():
-                            environment_grid[y][x] = -1
+                            environment_grid[y][x] = 10#-1
                         case Bomb():
                             global_bomb_lock.acquire()
                             if grid[y][x][k].get_time_left_ms() <= 1000 * TIME_CONST and environment_grid[y][x] != 100 and environment_grid[y][x] != 50:
-                                environment_grid[y][x] = 10
+                                environment_grid[y][x] = 60 #10 
                             elif(environment_grid[y][x] != 100 and environment_grid[y][x] != 50):
-                                environment_grid[y][x] = 20
+                                environment_grid[y][x] = 70 #20
                             global_bomb_lock.release()
                         case Player():
                             if grid[y][x][k] == self:
                                 environment_grid[y][x] = 100
                             else:
-                                environment_grid[y][x] = 50
+                                environment_grid[y][x] = 80 #50
                         case PowerBoost():
-                            environment_grid[y][x] = 2
+                            environment_grid[y][x] = 30 #2
                         case SpeedBoost():
-                            environment_grid[y][x] = 4
+                            environment_grid[y][x] = 40 #4
                         case BombBoost():
-                            environment_grid[y][x] = 3
+                            environment_grid[y][x] = 50 #3
 
-        grid_lock.release()
+        grid_lock.release('Player.get_self_grid') #grid_lock.release()
         return environment_grid[None,:]
+    
+    def get_self_gridSmart(self):
+        grid_lock.acquire('Player.get_self_grid')
+
+        bomb_grid = np.zeros((map_x_len, map_y_len), dtype=np.int8)
+        blocks_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.int8)
+        players_grid = np.zeros(shape=(map_x_len, map_y_len), dtype=np.int8)
+        power_up_grid = np.zeros((map_x_len, map_y_len), dtype=np.int8)
+
+        for y in range(map_y_len):
+            for x in range(map_x_len):
+                for k in range(len(grid[y][x])):
+                    match(grid[y][x][k]):
+                        case Empty():
+                            continue
+                        case Wall():
+                            blocks_grid[y][x] = 1
+                        case Border():
+                            blocks_grid[y][x] = -1
+                        case Bomb():
+                            #global_bomb_lock.acquire()
+                            #bomb_grid[y][x] = grid[y][x][k].get_time_left_ms()
+                            #global_bomb_lock.release()
+                            bomb_grid[y][x] = 1
+                        case Player():
+                            if grid[y][x][k] == self:
+                                players_grid[y][x] = 1
+                            else:
+                                players_grid[y][x] = -1
+                        case PowerBoost():
+                            power_up_grid[y][x] = 2
+                        case SpeedBoost():
+                            power_up_grid[y][x] = 1
+                        case BombBoost():
+                            power_up_grid[y][x] = 3
+
+        grid_lock.release('Player.get_self_grid')
+        return players_grid, power_up_grid, blocks_grid, bomb_grid
 
     def __str__(self):
         return f"name={self.name}, score={self.score}, bombs={self._max_bombs}, bombStrngth={self._bomb_strength}"

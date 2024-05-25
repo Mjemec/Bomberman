@@ -150,8 +150,10 @@ class DDQLearnPlayer:
         self._thread = None
 
     def _run(self):
-        players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
-        state = np.stack((players_grid, power_up_grid, blocks_grid, bomb_grid))
+        #players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
+        #state = np.stack((players_grid, power_up_grid, blocks_grid, bomb_grid))
+        state = self.player.get_self_entire_grid()
+        state = state / np.max(state)
     
         done = False
         while not self._stop_event.is_set() and not done:
@@ -159,15 +161,18 @@ class DDQLearnPlayer:
             with torch.no_grad():
                 state = state[0].__array__() if isinstance(state, tuple) else state.__array__()
                 state = torch.tensor(state, device=self.device).unsqueeze(0)
-                action_values = self.net(state, model="online")
+                state = state.float()
+                action_values = self.policy_net(state, model="online")
                 action = torch.argmax(action_values, axis=1).item()
         
             observation, reward, done, _ = self.env.step(action)
 
-            players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
-            next_state = np.stack((players_grid2, power_up_grid2, blocks_grid2, bomb_grid2))
+            #players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
+            #next_state = np.stack((players_grid2, power_up_grid2, blocks_grid2, bomb_grid2))
+            state = self.player.get_self_entire_grid()
+            state = state / np.max(state)
 
-            state = next_state
+            #state = next_state
 
 
     def start(self):
@@ -180,6 +185,191 @@ class DDQLearnPlayer:
         if self._thread is not None:
             self._stop_event.set()
             self._thread.join()
+
+
+class SmartPlayer:
+    player: game.Player
+
+    def __init__(self):
+        self.player = game.Player('Smart')
+        self._stop_event = threading.Event()
+        self._thread = None
+        #self.env = DQEnv(self.player)
+        self.spottingRange = 1#2
+        self.prevMove = None
+        self.performedMoves = []
+
+    def _run(self):
+        while not self._stop_event.is_set() and not self.player.dead:
+            players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_gridSmart() #.get_self_grid()
+
+            playerLocation = np.argwhere(players_grid == 1)#[0]
+            #if len(playerLocation) == 0:
+            #    break
+
+            playerLocation = playerLocation[0]
+
+            #action = None
+            weights = [0.2, 0.2, 0.2, 0.2, 0.2, 0.0]
+            action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
+
+            for priorityRange in range(1, self.spottingRange + 1): #('up', 'down', 'left', 'right', 'noop', 'bomb')
+
+                xStart = None
+                xEnd = None
+                yStart = None
+                yEnd = None
+
+                if playerLocation[0] - priorityRange < 0:
+                    xStart = 0
+                else:
+                    xStart = playerLocation[0] - priorityRange
+
+                if playerLocation[0] + priorityRange >= len(players_grid):
+                    xEnd = len(players_grid) - 1
+                else:
+                    xEnd = playerLocation[0] + priorityRange
+
+                if playerLocation[1] - priorityRange < 0:
+                    yStart = 0
+                else:
+                    yStart = playerLocation[1] - priorityRange
+
+                if playerLocation[1] + priorityRange >= len(players_grid[0]):
+                    yEnd = len(players_grid[0]) - 1
+                else:
+                    yEnd = playerLocation[1] + priorityRange
+
+                mask = np.ones((xEnd - xStart + 1, yEnd - yStart + 1))
+                rowsCols = np.array([[priorityRange-1, priorityRange-1], 
+                                     [priorityRange-1, priorityRange+1],
+                                     [priorityRange+1, priorityRange-1], 
+                                     [priorityRange+1, priorityRange+1]])
+                #cols = np.array([priorityRange-1, priorityRange+1, priorityRange-1, priorityRange+1])
+                for row, col in rowsCols:
+                    if row < 0 or row >= len(mask) or col < 0 or col >= len(mask[0]):
+                        continue
+                    mask[row, col] = 0
+                mask = mask.astype(bool)
+
+                if priorityRange == 1:
+                    nearBombs = np.argwhere(bomb_grid[xStart:xEnd + 1, yStart:yEnd + 1] == 1) #!= 1e6)
+                    if len(nearBombs) != 0 and not np.array_equal(self.prevMove, playerLocation): #self.prevMove != playerLocation:
+                        self.prevMove = playerLocation
+                        firstBombPos = [nearBombs[0,0] + xStart, nearBombs[0,1] + yStart]
+                        if playerLocation[1] - firstBombPos[1] == -1:
+                            action = game.ACTION_SPACE[2] #left
+                        elif playerLocation[1] - firstBombPos[1] == 1:
+                            action = game.ACTION_SPACE[3] #right
+                        elif playerLocation[0] - firstBombPos[0] == -1:
+                            action = game.ACTION_SPACE[0] #up
+                        elif playerLocation[0] - firstBombPos[0] == 1:
+                            action = game.ACTION_SPACE[1] #down
+                        else:
+                            #weights = [0.2, 0.2, 0.2, 0.2, 0.2, 0.0]
+                            #action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
+                            if blocks_grid[playerLocation[0], playerLocation[1] - 1] == 0 and bomb_grid[playerLocation[0], playerLocation[1] - 1] == 0:
+                                action = game.ACTION_SPACE[2] #left
+                            elif blocks_grid[playerLocation[0], playerLocation[1] + 1] == 0 and bomb_grid[playerLocation[0], playerLocation[1] + 1] == 0:
+                                action = game.ACTION_SPACE[3] #right
+                            elif blocks_grid[playerLocation[0] + 1, playerLocation[1]] == 0 and bomb_grid[playerLocation[0] + 1, playerLocation[1]] == 0:
+                                action = game.ACTION_SPACE[1] #down
+                            else:
+                                action = game.ACTION_SPACE[0] #up
+                        break
+                    elif len(nearBombs) != 0 and np.array_equal(self.prevMove, playerLocation):
+                        self.prevMove = playerLocation
+                        #weights = [0.2, 0.2, 0.2, 0.2, 0.2, 0.0]
+                        #action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
+                        if bomb_grid[playerLocation[0]-1, playerLocation[1] - 1] == 1 or bomb_grid[playerLocation[0]-1, playerLocation[1] + 1] == 1 or bomb_grid[playerLocation[0]+1, playerLocation[1] - 1] == 1 or bomb_grid[playerLocation[0]+1, playerLocation[1] + 1] == 1:
+                            action = game.ACTION_SPACE[4] #noop
+                        elif blocks_grid[playerLocation[0], playerLocation[1] - 1] == 0 and bomb_grid[playerLocation[0], playerLocation[1] - 1] == 0 and players_grid[playerLocation[0], playerLocation[1] - 1] == 0:
+                            action = game.ACTION_SPACE[2] #left
+                        elif blocks_grid[playerLocation[0], playerLocation[1] + 1] == 0 and bomb_grid[playerLocation[0], playerLocation[1] + 1] == 0 and players_grid[playerLocation[0], playerLocation[1] + 1] == 0:
+                            action = game.ACTION_SPACE[3] #right
+                        elif blocks_grid[playerLocation[0] + 1, playerLocation[1]] == 0 and bomb_grid[playerLocation[0] + 1, playerLocation[1]] == 0 and players_grid[playerLocation[0] + 1, playerLocation[1]] == 0:
+                            action = game.ACTION_SPACE[1] #down
+                        else:
+                            action = game.ACTION_SPACE[0] #up
+                        break
+                    
+
+                #else:
+                tmp_blocks_grid = blocks_grid[xStart:xEnd + 1, yStart:yEnd + 1]
+                tmp_blocks_grid[~mask] = 0
+                nearBoxes = np.argwhere(tmp_blocks_grid == 1)
+                if len(nearBoxes) != 0:
+                    self.prevMove = playerLocation
+                    firstBoxPos = [nearBoxes[0,0] + xStart, nearBoxes[0,1] + yStart] #nearBoxes[0]
+                    if (playerLocation[1] - firstBoxPos[1] == 0 or playerLocation[0] - firstBoxPos[0] == 0) and priorityRange == 1:
+                        action = game.ACTION_SPACE[5] #Bomb
+                    elif playerLocation[1] - firstBoxPos[1] < 0:
+                        action = game.ACTION_SPACE[3] #right
+                    elif playerLocation[1] - firstBoxPos[1] > 0:
+                        action = game.ACTION_SPACE[2] #left
+                    elif playerLocation[0] - firstBoxPos[0] < 0:
+                        action = game.ACTION_SPACE[1] #down
+                    elif playerLocation[0] - firstBoxPos[0] > 0:
+                        action = game.ACTION_SPACE[0] #up
+                    else:
+                        weights = [0.2, 0.2, 0.2, 0.2, 0.2, 0.0]
+                        action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
+                    break
+                    
+                tmp_players_grid = players_grid[xStart:xEnd + 1, yStart:yEnd + 1]
+                tmp_players_grid[~mask] = 0
+                nearPlayers = np.argwhere(tmp_players_grid == -1)
+                if len(nearPlayers) != 0:
+                    self.prevMove = playerLocation
+                    firstPlayerPos = [nearPlayers[0,0] + xStart, nearPlayers[0,1] + yStart] #nearPlayers[0]
+                    if (playerLocation[1] - firstPlayerPos[1] == 0 or playerLocation[0] - firstPlayerPos[0] == 0) and priorityRange == 1:
+                        action = game.ACTION_SPACE[5] #Bomb
+                    elif playerLocation[1] - firstPlayerPos[1] < 0:
+                        action = game.ACTION_SPACE[3] #right
+                    elif playerLocation[1] - firstPlayerPos[1] > 0:
+                        action = game.ACTION_SPACE[2] #left
+                    elif playerLocation[0] - firstPlayerPos[0] < 0:
+                        action = game.ACTION_SPACE[1] #down
+                    elif playerLocation[0] - firstPlayerPos[0] > 0:
+                        action = game.ACTION_SPACE[0] #up
+                    else:
+                        weights = [0.2, 0.2, 0.2, 0.2, 0.2, 0.0]
+                        action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
+                    break
+
+
+
+            #weights = [0.198, 0.198, 0.198, 0.198, 0.198, 0.01]
+            #action = random.choices(game.ACTION_SPACE, weights=weights, k=1)[0]
+
+            if action == 'bomb':
+                self.player.place_bomb()
+            else:
+                self.player.move(action)
+
+
+    def start(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._stop_event.clear()
+            self._thread = threading.Thread(target=self._run)
+            threads_lock.acquire()
+            threads[self] = self._thread
+            threads_lock.release()
+            self._thread.start()
+
+    def stop(self):
+        if self._thread is not None:
+            self._stop_event.set()
+            if self._thread.is_alive():
+                self._thread.join()
+            threads_lock.acquire()
+            #try:
+            threads.pop(self)
+            #except KeyError:
+            #    pass
+            threads_lock.release()
+        else:
+            pass
 
 
 class Environment:
