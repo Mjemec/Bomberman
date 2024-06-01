@@ -63,7 +63,7 @@ class QLearnPlayer:
     def __init__(self):
         global QLearnPlayerQ_table
         if QLearnPlayerQ_table is None:
-            QLearnPlayerQ_table = np.load('array.npy')
+            QLearnPlayerQ_table = np.load('array.npy.cp4')
         self.Q_table = QLearnPlayerQ_table
         self.player = game.Player('QWalker')
         self.env = QEnv(self.player)
@@ -74,7 +74,7 @@ class QLearnPlayer:
         done = False
         while not self._stop_event.is_set() and not done:
             current_state = self.env.get_state()
-            action = np.argmax(self.Q_table[current_state]) if np.random.rand() < 0.05 else np.random.randint(0, 6)
+            action = np.argmax(self.Q_table[current_state]) #if np.random.rand() < 0.05 else np.random.randint(0, 6)
             observation, reward, done, _ = self.env.step(action)
 
     def start(self):
@@ -101,11 +101,19 @@ class DQLearnPlayer:
         self._thread = None
 
     def _run(self):
+        """
         players_grid, power_up_grid, blocks_grid, bomb_grid = self.player.get_self_grid()
         nrBombs = np.array([self.player.get_bombs()], dtype=np.uint8)
         state = np.concatenate((players_grid.flatten(), power_up_grid.flatten(), blocks_grid.flatten(), bomb_grid.flatten(), nrBombs))
         state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+        """
     
+        nrBombs = np.array([self.player.get_bombs()], dtype=np.uint8)
+        state = self.player.get_self_entire_grid()
+        state = np.concatenate((state.flatten(), nrBombs))
+        state = state / np.max(state)
+        state = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+
         done = False
         while not self._stop_event.is_set() and not done:
             action = None
@@ -116,10 +124,18 @@ class DQLearnPlayer:
                 action = self.policy_net(state).max(1).indices.view(1, 1)
         
             observation, reward, done, _ = self.env.step(action)
-
+            
+            """
             players_grid2, power_up_grid2, blocks_grid2, bomb_grid2 = self.player.get_self_grid()
             nrBombs2 = np.array([self.player.get_bombs()], dtype=np.uint8)
             observation = np.concatenate((players_grid2.flatten(), power_up_grid2.flatten(), blocks_grid2.flatten(), bomb_grid2.flatten(), nrBombs2))
+            next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+            """
+
+            nrBombs = np.array([self.player.get_bombs()], dtype=np.uint8)
+            observation = self.player.get_self_entire_grid()
+            observation = np.concatenate((observation.flatten(), nrBombs))
+            observation = observation / np.max(observation)
             next_state = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
 
             state = next_state
@@ -154,16 +170,18 @@ class DDQLearnPlayer:
         #state = np.stack((players_grid, power_up_grid, blocks_grid, bomb_grid))
         state = self.player.get_self_entire_grid()
         state = state / np.max(state)
-    
+        
         done = False
         while not self._stop_event.is_set() and not done:
             action = None
             with torch.no_grad():
+                game.pause_lock.acquire("DDQL pause")
                 state = state[0].__array__() if isinstance(state, tuple) else state.__array__()
                 state = torch.tensor(state, device=self.device).unsqueeze(0)
                 state = state.float()
                 action_values = self.policy_net(state, model="online")
                 action = torch.argmax(action_values, axis=1).item()
+                game.pause_lock.release("DDQL pause")
         
             observation, reward, done, _ = self.env.step(action)
 
@@ -207,6 +225,8 @@ class SmartPlayer:
             #if len(playerLocation) == 0:
             #    break
 
+            if len(playerLocation) == 0:
+                break
             playerLocation = playerLocation[0]
 
             #action = None
@@ -448,7 +468,7 @@ class QEnv(Environment):
               int[2 signed dir (y, x)]{NEGATIVE(left , down), ON_POSITION, POSITIVE(right, up)}]
     """
     def step(self, action):
-        game.pause_lock.acquire()
+        #game.pause_lock.acquire()
         ILLIGAL_PENALTY = 50
         r1 = self.player.score
         is_legal_move = True
@@ -473,11 +493,11 @@ class QEnv(Environment):
             reward -= ILLIGAL_PENALTY//2
         else:
             reward -= ILLIGAL_PENALTY
-        game.pause_lock.release()
+        #game.pause_lock.release()
         return observation_new, reward, done, not is_legal_move
 
     def get_state(self):
-        game.pause_lock.acquire()
+        #game.pause_lock.acquire()
         neigh8 = []
         x = self.player.get_position()[1]
         y = self.player.get_position()[0]
@@ -561,7 +581,7 @@ class QEnv(Environment):
         game.global_bomb_lock.release()
         neigh8.extend(direction)
         neigh8.extend(dir_bomb_severity)
-        game.pause_lock.release()
+        #game.pause_lock.release()
         return QEnv.encode_state(neigh8)
 
     @staticmethod

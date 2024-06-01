@@ -90,11 +90,11 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 512 #256 #128
+BATCH_SIZE = 512 #512 #256 #128
 GAMMA = 0.99
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 100000 #500000 #80000 #1000
+EPS_DECAY = 500000 #1000000 #100000 #500000 #80000 #1000
 TAU = 0.005
 LR = 1e-4
 
@@ -117,14 +117,16 @@ memory = ReplayMemory(10000)
 
 
 steps_done = 0
+eps_threshold = 0
 
 
 def select_action(state):
     global steps_done
+    global eps_threshold
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
-    print("Exploration probability:", eps_threshold)
+    #print("Exploration probability:", eps_threshold)
     steps_done += 1
     if sample > eps_threshold:
         with torch.no_grad():
@@ -217,7 +219,7 @@ def optimize_model():
     optimizer.step()
 
 ################################################## Training loop
-demonstration = True
+demonstration = False
 if demonstration:
     game.HEADLESS = False
     game.TIME_CONST = 0.25
@@ -252,17 +254,23 @@ for i_episode in range(num_episodes):
               f' average of last 100: {sum(average_of_100)/len(average_of_100):.2f}')
         timelast = datetime.datetime.now()
 
+        print("Exploration probability:", eps_threshold)
+
     # Initialize the environment and get its state
     #state, info = env.reset()
     game.grid = game.get_start_grid()
     game.alive_players = []
     game.dead_players = []
     game.global_bombs = set()
-    p1 = game.Player('DQL')
-    env = DQEnv(p1) #QEnv(p1)
+    #p1 = game.Player('DQL')
+    #env = DQEnv(p1) #QEnv(p1)
 
     walker = SmartPlayer()
     walker2 = SmartPlayer()
+
+    p1 = game.Player('DQL')
+    env = DQEnv(p1) #QEnv(p1)
+
     walker1 = SmartPlayer()
 
     walker.start()
@@ -341,7 +349,7 @@ for i_episode in range(num_episodes):
             walker1.stop()
             walker2.stop()
             """
-            episode_durations.append(total_reward)
+            #####################episode_durations.append(total_reward)
             break
 
         """
@@ -373,4 +381,4 @@ plt.ylabel('Cumulated Rewards') #plt.ylabel('Duration')
 plt.savefig('DQL-rewardsPlot.png')
 plt.close()
 """
-np.savetxt("DQL_rewardsList.txt", np.array(episode_durations), delimiter=',')
+#################################np.savetxt("DQL_rewardsList.txt", np.array(episode_durations), delimiter=',')

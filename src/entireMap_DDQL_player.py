@@ -50,8 +50,8 @@ class DDQL_agent:
         self.net = self.net.to(device=self.device)
 
         self.exploration_rate = 1
-        self.exploration_rate_decay = 0.9999975 #0.9999985 #0.99999975
-        self.exploration_rate_min = 0.1
+        self.exploration_rate_decay = 0.9999985 #0.999995 #0.99999 #0.9999975 #0.9999985 #0.99999975
+        self.exploration_rate_min = 0.05 #0.1
         self.curr_step = 0
 
         self.save_every = 5e5  # no. of experiences between saving Agent Net
@@ -210,7 +210,7 @@ class DDQL_agent:
 
         print(f"Loading model at {load_path} with exploration rate {exploration_rate}")
         self.net.load_state_dict(state_dict)
-        self.exploration_rate = exploration_rate
+        self.exploration_rate = exploration_rate #0.4 #exploration_rate
 
 
 ################################################## Neural network
@@ -378,7 +378,7 @@ if demonstration:
     game.TIME_CONST = 0.25
 else:
     game.HEADLESS = True
-    game.TIME_CONST = 0.01 #0.001
+    game.TIME_CONST = 0.005 #0.01 #0.001
 
 
 use_cuda = torch.cuda.is_available()
@@ -395,14 +395,16 @@ grid = game.get_start_grid()
 map_x_len = len(grid[0])
 map_y_len = len(grid)
 
-checkpoint_model = None #Path('DDQL_model_Dict')
+checkpoint_model = None #Path('DDQL_model_Dict-VsiStarti2')
 p1_Agent = DDQL_agent(state_dim=(1, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir, checkpoint=checkpoint_model) #4
 #state, info = env.reset()
 #n_observations = (map_x_len * map_y_len * 4) + 1
 
 logger = MetricLogger(save_dir)
 
-episodes = 100000 #200000 #100000 #40000#40
+episodes = 100000 #50000 #40000 #100000 #200000 #100000 #40000#40
+changePositions = 0
+
 for e in range(episodes):
     game.grid = game.get_start_grid()
     game.alive_players = []
@@ -411,12 +413,94 @@ for e in range(episodes):
 
     #p1_Agent = DDQL_agent(state_dim=(1, map_y_len, map_x_len), action_dim=n_actions, save_dir=save_dir) #4
 
+    if (e+1) % 1000 == 0:
+        changePositions = random.randint(0, 3)
+
+    p1 = None
+    env = None
+    walker = None
+    walker1 = None
+    walker2 = None
+
+    # Change player positions
+    """
+    if changePositions == 0:
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+
+        walker = SmartPlayer() #WalkerPlayer()
+        walker1 = SmartPlayer() #WalkerPlayer()
+        walker2 = SmartPlayer() #WalkerPlayer()
+
+    elif changePositions == 1:
+        walker = SmartPlayer() #WalkerPlayer()
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+        walker1 = SmartPlayer() #WalkerPlayer()
+        walker2 = SmartPlayer() #WalkerPlayer()
+
+    elif changePositions == 2:
+        walker = SmartPlayer() #WalkerPlayer()
+        walker1 = SmartPlayer() #WalkerPlayer()
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+        walker2 = SmartPlayer() #WalkerPlayer()
+
+    else:
+        walker = SmartPlayer() #WalkerPlayer()
+        walker1 = SmartPlayer() #WalkerPlayer()
+        walker2 = SmartPlayer() #WalkerPlayer()
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+    """
+    # Change enemy Bots
+    """
     p1 = game.Player('DDQL')
     env = DQEnv(p1)
 
     walker = SmartPlayer() #WalkerPlayer()
     walker1 = SmartPlayer() #WalkerPlayer()
-    walker2 = WalkerPlayer()
+    walker2 = SmartPlayer() #WalkerPlayer()
+    """
+    """
+    if e < 25000:
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+
+        walker = WalkerPlayer()
+        walker1 = WalkerPlayer()
+        walker2 = WalkerPlayer()
+    elif e < 50000:
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+
+        walker = SmartPlayer() #WalkerPlayer()
+        walker1 = WalkerPlayer() #WalkerPlayer()
+        walker2 = WalkerPlayer() #WalkerPlayer()
+
+    elif e < 75000:
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+
+        walker = SmartPlayer() #WalkerPlayer()
+        walker1 = SmartPlayer() #WalkerPlayer()
+        walker2 = WalkerPlayer() #WalkerPlayer()
+
+    else:
+        p1 = game.Player('DDQL')
+        env = DQEnv(p1)
+
+        walker = SmartPlayer() #WalkerPlayer()
+        walker1 = SmartPlayer() #WalkerPlayer()
+        walker2 = SmartPlayer() #WalkerPlayer()
+    """
+    p1 = game.Player('DDQL')
+    env = DQEnv(p1)
+
+    walker = SmartPlayer() #WalkerPlayer()
+    walker1 = SmartPlayer() #WalkerPlayer()
+    walker2 = SmartPlayer() #WalkerPlayer()
+
 
     walker.start()
     walker1.start()
@@ -443,7 +527,9 @@ for e in range(episodes):
         #state = state / np.max(state)
 
         # Run agent on the state
+        game.pause_lock.acquire("DDQL pause")
         action = p1_Agent.act(state)
+        game.pause_lock.release("DDQL pause")
 
         # Agent performs action
         observation, reward, done, info = env.step(action)
@@ -455,7 +541,7 @@ for e in range(episodes):
         next_state = p1.get_self_entire_grid()
         next_state = next_state / np.max(next_state)
         #next_state.astype(np.float32)
-
+        game.pause_lock.acquire("DDQL pause2")
         # Remember
         p1_Agent.cache(state, next_state, action, reward, done)
 
@@ -464,7 +550,7 @@ for e in range(episodes):
 
         # Logging
         logger.log_step(reward, loss, q)
-
+        game.pause_lock.release("DDQL pause2")
         # Update state
         state = next_state
 

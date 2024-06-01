@@ -153,10 +153,10 @@ class Bomb:
     timeout = float('inf')
 
     def __del__(self):
-        try:
-            self.timer.cancel()
-        except AttributeError:
-            return
+        #try:
+        self.is_canceled = True #self.timer.cancel()
+        #except AttributeError:
+        #    return
         global_bomb_lock.acquire()
         try:
             global_bombs.remove(self)
@@ -297,9 +297,19 @@ class Bomb:
 
     def get_time_left_ms(self):
         return self.timeout - (datetime.now() - self.time_created).total_seconds()*1000
+        #return (self.timeout - (datetime.now() - self.time_created).total_seconds() * TIME_CONST) * 1000
+    
+    def get_time_left_ticks(self):
+        return (self.timeout - (datetime.now() - self.time_created).total_seconds() * TIME_CONST) * 1000
 
     def __format__(self, format_spec):
         if format_spec == '2':
+            timeLeft = self.get_time_left_ticks()
+            """
+            if timeLeft < 1000 * TIME_CONST:
+                return '\033[92m' + '!'*int(format_spec) + '\033[0m'
+            """
+
             return '\033[92m' + ':'*int(format_spec) + '\033[0m'
         else:
             return str(self)[:int(format_spec)]
@@ -468,7 +478,7 @@ class Player:
     def place_bomb(self):
         y = self._position[0]
         x = self._position[1]
-        bomb = Bomb(3, self._bomb_strength, owner=self, x=x, y=y)
+        bomb = Bomb(5, self._bomb_strength, owner=self, x=x, y=y)
         b_x = bomb.x
         b_y = bomb.y
         is_smart_by_player = False
@@ -485,7 +495,7 @@ class Player:
                 break
         players_lock.release()
         if is_smart_by_player:
-            self.score += 200
+            self.score += 200 #100 #200
         else:
             for neigh_block in [grid[b_y - 1][b_x], grid[b_y + 1][b_x],
                                 grid[b_y][b_x - 1], grid[b_y][b_y + 1]]:
@@ -494,7 +504,7 @@ class Player:
                     break
 
             if is_smart_by_wall:
-                self.score += 100
+                self.score += 100 #10 #100
 
         if not is_smart_by_player and not is_smart_by_wall:
             self.score -= 50
@@ -554,14 +564,25 @@ class Player:
                             environment_grid[y][x] = 10#-1
                         case Bomb():
                             global_bomb_lock.acquire()
-                            if grid[y][x][k].get_time_left_ms() <= 1000 * TIME_CONST and environment_grid[y][x] != 100 and environment_grid[y][x] != 50:
+                            if grid[y][x][k].get_time_left_ms() <= 1000 * TIME_CONST and environment_grid[y][x] < 80:
                                 environment_grid[y][x] = 60 #10 
-                            elif(environment_grid[y][x] != 100 and environment_grid[y][x] != 50):
+                            elif environment_grid[y][x] < 80: #(environment_grid[y][x] != 100 and environment_grid[y][x] != 50):
                                 environment_grid[y][x] = 70 #20
                             global_bomb_lock.release()
                         case Player():
                             if grid[y][x][k] == self:
-                                environment_grid[y][x] = 100
+                                environment_grid[y][x] = 90 #100
+
+                                for element in grid[y][x]:
+                                    if type(element) is Bomb: #grid[y][x]:
+                                        global_bomb_lock.acquire()
+                                        if element.get_time_left_ms() <= 1000 * TIME_CONST:
+                                            environment_grid[y][x] += 10 #60 #10 
+                                        else:
+                                            environment_grid[y][x] += 20 #70 #20
+                                        global_bomb_lock.release()
+                                        break
+
                             else:
                                 environment_grid[y][x] = 80 #50
                         case PowerBoost():
